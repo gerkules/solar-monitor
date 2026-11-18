@@ -15,6 +15,7 @@
 | [MQTT.md](MQTT.md) | раскладка топиков, Home Assistant discovery, запись уставок |
 | [UI.md](UI.md) | страницы, темы, языки, графики, экспорт |
 | [INTEGRATIONS.md](INTEGRATIONS.md) | Home Assistant, импорт SolarAssistant, мультисайт, правила, уведомления, прогноз |
+| [SECURITY.md](SECURITY.md) | авторизация, HTTPS, мультисайт, инфраструктура |
 | [OPERATIONS.md](OPERATIONS.md) | логи, health, тесты, бэкапы, обновление, диагностика |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | известные проблемы и их решения (с фактами из практики) |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | структура кода, как добавить метрику/язык/драйвер, тесты, скриншоты |

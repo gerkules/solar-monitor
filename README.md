@@ -72,6 +72,7 @@ GRAFANA_PASSWORD=<пароль>
 | [docs/MQTT.md](docs/MQTT.md) | топики, HA discovery, запись уставок |
 | [docs/UI.md](docs/UI.md) | страницы, темы, языки, графики |
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | HA, импорт SA, мультисайт, правила, уведомления, прогноз |
+| [docs/SECURITY.md](docs/SECURITY.md) | авторизация, HTTPS, доступ по сети |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | логи, health, тесты, бэкап, обновление |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | известные проблемы с решениями |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | структура кода, как добавить метрику/язык/драйвер |

@@ -1,6 +1,6 @@
-# One stack for every host: mini PC, VDS or Synology NAS.
-# Only `collector` talks to the inverter; InfluxDB and Grafana are pure containers,
-# so the same file runs with a USB cable plugged in or on a VDS with a remote dongle.
+# Один стек для любой машины: mini PC, VDS или Synology NAS.
+# Инвертор опрашивает только collector; InfluxDB и Grafana — обычные контейнеры,
+# поэтому один и тот же файл работает и с USB-кабелем, и на VDS с сетевым донглом.
 
 services:
   collector:
@@ -14,8 +14,8 @@ services:
     volumes:
       - ./data/collector:/data
       - ./data/certs:/certs:ro        # TLS_CERT=/certs/server.crt (см. tools/gen-cert.sh)
-    # --- physical connection (USB-HID or USB-RS232) -------------------------
-    # Uncomment the one you use. On a VDS there is no USB: keep TRANSPORT=tcp.
+    # --- физическое подключение (USB-HID или USB-RS232) ---------------------
+    # Раскомментируйте нужное. На VDS USB нет — там TRANSPORT=tcp.
     # devices:
     #   - /dev/hidraw0:/dev/hidraw0
     #   - /dev/ttyUSB0:/dev/ttyUSB0
@@ -28,8 +28,8 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
     healthcheck:
-      test: ["CMD", "python", "-c",
-             "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=4).status==200 else 1)"]
+      # понимает и http, и https (self-signed) — см. solar_monitor/healthcheck.py
+      test: ["CMD", "python", "-m", "solar_monitor.healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -69,7 +69,7 @@ services:
       INFLUX_TOKEN: "${INFLUX_TOKEN}"
       INFLUX_ORG: "${INFLUX_ORG:-solar}"
       INFLUX_BUCKET: "${INFLUX_BUCKET:-solar}"
-      SITE: "${SITE:-office}"
+      SITE: "${SITE:-home}"
     volumes:
       - ./data/grafana:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -82,8 +82,7 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  # Optional local broker. Leave it out if you already have Mosquitto
-  # (home-lab case) and just point MQTT_HOST at it.
+  # Локальный брокер — только если своего нет (профиль local-broker).
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: solar-mosquitto
