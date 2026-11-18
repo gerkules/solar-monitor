@@ -119,6 +119,9 @@ INFLUX_MEASUREMENT_PREFIX = os.getenv("INFLUX_MEASUREMENT_PREFIX", "")
 # ---- http api ---------------------------------------------------------------
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = _int("API_PORT", 8080)
+# Веб-интерфейс можно выключить: слабое железо (Raspberry Pi 1/Zero, роутер) без
+# FastAPI/pydantic, только MQTT-публикация. API_PORT=0 тоже выключает UI.
+WEBAPP_ENABLED = _bool("WEBAPP", API_PORT > 0)
 API_TOKEN = os.getenv("API_TOKEN") or None
 # Optional HTTP Basic auth for the UI and the API (empty = open, LAN-only deployment).
 AUTH_USER = os.getenv("AUTH_USER") or None

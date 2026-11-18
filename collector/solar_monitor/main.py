@@ -13,11 +13,9 @@ import sys
 import threading
 import time
 
-import uvicorn
-
 from . import auth as auth_mod, battery, config, connection as conn_mod, forecast, \
     notifier as notifier_mod, publishers, rules as rules_mod, sa_source, \
-    settings as settings_mod, sites as sites_mod, webapp
+    settings as settings_mod, sites as sites_mod
 from .poller import Poller
 from .transports import TransportError, make_transport
 
@@ -109,25 +107,31 @@ def main() -> int:
     # --- web UI + HTTP API (FastAPI/uvicorn) ---------------------------------
     _spawn(forecast_svc.run)
     batt_monitor.start()
-    app = webapp.create_app(poller, notifier=notifier, rules=rule_engine,
-                            forecast_svc=forecast_svc, sites=site_registry,
-                            battery=batt_monitor, connection_store=conn_store,
-                            auth_store=auth_store)
-    scheme = "https" if (config.TLS_CERT and config.TLS_KEY) else "http"
-    server = uvicorn.Server(uvicorn.Config(
-        app, host=config.API_HOST, port=config.API_PORT,
-        log_level="warning", access_log=False,
-        ssl_certfile=config.TLS_CERT or None,
-        ssl_keyfile=config.TLS_KEY or None))
-    _spawn(server.run)
-    log.info("web ui + api on %s://%s:%s/ (docs: /api/docs)", scheme, config.API_HOST, config.API_PORT)
-    if config.AUTH_USER:
-        log.info("ui auth: HTTP Basic (%s)", config.AUTH_USER)
+    if config.WEBAPP_ENABLED:
+        import uvicorn
+
+        from . import webapp
+        app = webapp.create_app(poller, notifier=notifier, rules=rule_engine,
+                                forecast_svc=forecast_svc, sites=site_registry,
+                                battery=batt_monitor, connection_store=conn_store,
+                                auth_store=auth_store)
+        scheme = "https" if (config.TLS_CERT and config.TLS_KEY) else "http"
+        server = uvicorn.Server(uvicorn.Config(
+            app, host=config.API_HOST, port=config.API_PORT,
+            log_level="warning", access_log=False,
+            ssl_certfile=config.TLS_CERT or None,
+            ssl_keyfile=config.TLS_KEY or None))
+        _spawn(server.run)
+        log.info("web ui + api on %s://%s:%s/ (docs: /api/docs)", scheme, config.API_HOST, config.API_PORT)
+        if config.AUTH_USER:
+            log.info("ui auth: HTTP Basic (%s)", config.AUTH_USER)
+        else:
+            log.warning("ui auth is OFF: anyone on the network can change inverter settings")
+        if auth_store.info().get("default_password"):
+            log.warning("ПАРОЛЬ ПО УМОЛЧАНИЮ (%s/%s): смените его в Настройки → Уставки → Доступ",
+                        auth_mod.DEFAULT_USER, auth_mod.DEFAULT_PASSWORD)
     else:
-        log.warning("ui auth is OFF: anyone on the network can change inverter settings")
-    if auth_store.info().get("default_password"):
-        log.warning("ПАРОЛЬ ПО УМОЛЧАНИЮ (%s/%s): смените его в Настройки → Уставки → Доступ",
-                    auth_mod.DEFAULT_USER, auth_mod.DEFAULT_PASSWORD)
+        log.info("headless: веб-интерфейс выключен (WEBAPP=false) — только MQTT")
 
     # --- shutdown ------------------------------------------------------------
     stop = threading.Event()

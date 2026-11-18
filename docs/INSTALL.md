@@ -147,3 +147,32 @@ docker compose down            # остановить
 docker compose down -v         # + удалить тома (история InfluxDB!)
 rm -rf data/                   # + локальные данные и конфиги
 ```
+
+## Слабое железо: Raspberry Pi 1 / Zero (ARMv6), роутеры
+
+Docker там не работает (нужен ARMv7+), InfluxDB и Grafana для ARMv6 не собираются.
+Работает только сам коллектор — он отправляет данные в MQTT, а UI/история живут на сервере:
+
+```bash
+sudo apt install python3-venv python3-pip
+python3 -m venv ~/sm && . ~/sm/bin/activate
+pip install paho-mqtt pyserial                     # без fastapi/pydantic — они не нужны
+git clone https://github.com/gerkules/solar-monitor && cd solar-monitor
+cp .env.example .env                               # SERIAL_PORT=/dev/ttyUSB0, MQTT_*, WEBAPP=false
+WEBAPP=false python3 -m solar_monitor.main
+```
+
+Типовой `.env` для такого узла:
+
+```dotenv
+WEBAPP=false
+API_PORT=0
+TRANSPORT=serial
+SERIAL_PORT=/dev/ttyUSB0
+MQTT_HOST=192.168.31.224
+MQTT_PREFIX=inverter_2
+DEVICE_ID=pico-edge-1
+```
+
+Что важно на Pi 1B: нет Wi-Fi (только Ethernet), SD-карта боится отключения питания
+(`Storage=volatile` в journald + логи в tmpfs), потребление ~3.5 Вт.

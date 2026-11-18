@@ -420,3 +420,42 @@ class TestPasswordChange(unittest.TestCase):
         again = auth.AuthStore(self.store.path)
         self.assertTrue(again.check("admin", "persisted1"))
         self.assertFalse(again.check("admin", "envpass123"))
+
+
+class HeadlessModeTest(unittest.TestCase):
+    """WEBAPP=false: коллектор не требует fastapi/pydantic/uvicorn (ARMv6, роутеры)."""
+
+    def test_webapp_disabled_with_env_flag(self):
+        import importlib
+        import os
+        from unittest import mock
+
+        from solar_monitor import config as cfg_mod
+        with mock.patch.dict(os.environ, {"WEBAPP": "false", "API_PORT": "8080"}):
+            reloaded = importlib.reload(cfg_mod)
+            self.assertFalse(reloaded.WEBAPP_ENABLED)
+        with mock.patch.dict(os.environ, {"WEBAPP": "", "API_PORT": "0"}):
+            reloaded = importlib.reload(cfg_mod)
+            self.assertFalse(reloaded.WEBAPP_ENABLED)     # API_PORT=0 тоже выключает UI
+        importlib.reload(cfg_mod)
+        self.assertTrue(cfg_mod.WEBAPP_ENABLED)
+
+    def test_collector_imports_without_fastapi(self):
+        """Модуль main импортируется, когда fastapi/uvicorn/pydantic недоступны."""
+        import subprocess
+        import sys
+        code = (
+            "import sys\n"
+            "class Block:\n"
+            "    def find_module(self, name, path=None):\n"
+            "        if name.split('.')[0] in ('fastapi','uvicorn','pydantic','starlette'):\n"
+            "            return self\n"
+            "    def load_module(self, name): raise ImportError('blocked ' + name)\n"
+            "sys.meta_path.insert(0, Block())\n"
+            "import solar_monitor.main\n"
+            "print('ok')\n"
+        )
+        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                             env={"WEBAPP": "false", "PATH": "/usr/bin:/bin",
+                                  "PYTHONPATH": "."}, cwd=".")
+        self.assertIn("ok", res.stdout, res.stderr)
