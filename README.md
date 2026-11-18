@@ -57,6 +57,20 @@ GRAFANA_PASSWORD=<пароль>
 
 Установка на Synology, VDS, mini PC и проброс USB — [docs/INSTALL.md](docs/INSTALL.md).
 
+## Автономная прошивка для ESP32
+
+Кроме сервера в репозитории есть **самостоятельная прошивка** (`firmware/esp32/`):
+ESP32/ESP32-C3 сам опрашивает инвертор по UART, отдаёт веб-интерфейс на своём IP и
+публикует MQTT — без VDS, InfluxDB и Grafana. Топики совпадают с серверными, поэтому
+Home Assistant видит узел так же, как полноценный сервер.
+
+```bash
+python3 tools/make_firmware_pi30.py          # парсеры из серверного pi30.py
+./tools/flash-esp32.sh --port /dev/tty.usbserial-0001 --chip esp32c3
+```
+
+Подробности: [`firmware/esp32/README.md`](firmware/esp32/README.md).
+
 ## Документация
 
 Полный комплект — в [`docs/`](docs/README.md):

@@ -1,0 +1,26 @@
+{
+  "wifi": {"ssid": "MY_SSID", "password": "MY_PASSWORD"},
+
+  "uart": {"id": 1, "baud": 2400, "tx": 4, "rx": 5},
+
+  "poll_fast_s": 2,
+  "poll_slow_s": 60,
+  "history_interval_s": 60,
+  "history_points": 1440,
+
+  "http": {"port": 80},
+  "auth": {"user": "admin", "password": "admin"},
+
+  "mqtt": {
+    "host": "192.168.31.224",
+    "port": 1883,
+    "user": "",
+    "password": "",
+    "prefix": "solar/pico",
+    "node_id": "pico",
+    "discovery": true
+  },
+
+  "ntp": {"host": "pool.ntp.org"},
+  "led_pin": null
+}

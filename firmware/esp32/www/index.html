@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>solar-monitor · ESP32</title>
+<style>
+  :root{
+    --bg:#eef2f7; --card:#fff; --fg:#1d2433; --muted:#6b7688; --line:#dfe6f0;
+    --accent:#f5a524; --accent2:#2f9e44; --accent3:#1c7ed6; --danger:#e03131;
+    --shadow:0 1px 2px rgba(16,24,40,.06),0 4px 14px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#12161d;--card:#1a2029;--fg:#e7ecf3;--muted:#93a0b4;--line:#28313d;
+          --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,
+       "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+  header{background:linear-gradient(90deg,#f5a524,#f76707);color:#fff;padding:14px 18px;
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.2px}
+  .pill{background:rgba(255,255,255,.22);padding:3px 10px;border-radius:999px;font-size:12px}
+  .pill.bad{background:rgba(224,49,49,.85)}
+  main{max-width:1080px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        box-shadow:var(--shadow);padding:14px;margin-bottom:14px}
+  .row{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .gauge{text-align:center}
+  .gauge svg{width:100%;max-width:150px;height:auto}
+  .gauge .val{font-size:22px;font-weight:600;margin-top:-34px}
+  .gauge .lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+  .kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:14px}
+  .kv:last-child{border-bottom:0}
+  .kv b{font-weight:600}
+  .muted{color:var(--muted)}
+  h2{font-size:14px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:0 0 10px}
+  canvas{width:100%;height:150px;display:block}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+  td:first-child{color:var(--muted)}
+  input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;
+               background:var(--bg);color:var(--fg);width:100%;max-width:170px}
+  button{font:inherit;padding:6px 12px;border:0;border-radius:8px;background:var(--accent3);
+         color:#fff;cursor:pointer}
+  button:disabled{opacity:.45;cursor:default}
+  .msg{font-size:13px;margin-left:8px}
+  .ok{color:var(--accent2)} .err{color:var(--danger)}
+  .warn{background:rgba(224,49,49,.08);border-color:rgba(224,49,49,.35)}
+  footer{text-align:center;color:var(--muted);font-size:12px;padding:10px 0 26px}
+  @media (max-width:560px){
+    main{padding:10px}
+    .card{padding:11px;border-radius:12px}
+    header{padding:10px 12px;gap:8px}
+    header h1{font-size:15px}
+    .pill{font-size:11px;padding:2px 8px}
+    .row{grid-template-columns:1fr !important;gap:10px}
+    #gauges{grid-template-columns:repeat(3,1fr) !important;gap:6px}
+    .gauge svg{max-width:92px}
+    .gauge .val{font-size:16px;margin-top:-24px}
+    .gauge .lbl{font-size:9px;letter-spacing:.3px}
+    tbody,tr,td{display:block}
+    td{border-bottom:1px solid var(--line);padding:8px 4px}
+    td:first-child{padding-bottom:0;border-bottom:0;color:var(--muted)}
+    td:last-child{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    input,select{max-width:none;width:100%}
+    td:last-child input,td:last-child select{flex:1;min-width:90px}
+    .msg{font-size:12px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ solar-monitor · ESP32</h1>
+  <span class="pill" id="mode">—</span>
+  <span class="pill" id="net">net…</span>
+  <span class="pill" id="mqtt">mqtt…</span>
+  <span class="pill" id="age">—</span>
+</header>
+
+<main>
+  <div class="card row" id="gauges">
+    <div class="gauge" data-key="pv_power" data-max="8000" data-color="var(--accent)">
+      <svg viewBox="0 0 120 120"><path fill="none" stroke="var(--line)" stroke-width="10"
+        d="M20 96a48 48 0 1 1 80 0"/><path class="arc" fill="none" stroke-width="10"
+        stroke-linecap="round" d="M20 96a48 48 0 1 1 80 0"/></svg>
+      <div class="val">—</div><div class="lbl">PV, W</div>
+    </div>
+    <div class="gauge" data-key="load_power" data-max="8000" data-color="var(--accent3)">
+      <svg viewBox="0 0 120 120"><path fill="none" stroke="var(--line)" stroke-width="10"
+        d="M20 96a48 48 0 1 1 80 0"/><path class="arc" fill="none" stroke-width="10"
+        stroke-linecap="round" d="M20 96a48 48 0 1 1 80 0"/></svg>
+      <div class="val">—</div><div class="lbl">Нагрузка, W</div>
+    </div>
+    <div class="gauge" data-key="battery_state_of_charge" data-max="100" data-color="var(--accent2)">
+      <svg viewBox="0 0 120 120"><path fill="none" stroke="var(--line)" stroke-width="10"
+        d="M20 96a48 48 0 1 1 80 0"/><path class="arc" fill="none" stroke-width="10"
+        stroke-linecap="round" d="M20 96a48 48 0 1 1 80 0"/></svg>
+      <div class="val">—</div><div class="lbl">АКБ, %</div>
+    </div>
+  </div>
+
+  <div class="card" id="warncard" style="display:none">
+    <h2>Предупреждения</h2><div id="warns" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <h2>Параметры</h2>
+    <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">
+      <div>
+        <div class="kv"><span>АКБ</span><b><span id="v-battery_voltage">—</span> В</b></div>
+        <div class="kv"><span>Ток АКБ</span><b><span id="v-battery_current">—</span> А</b></div>
+        <div class="kv"><span>Мощность АКБ</span><b><span id="v-battery_power">—</span> Вт</b></div>
+      </div>
+      <div>
+        <div class="kv"><span>Сеть</span><b><span id="v-grid_voltage">—</span> В</b></div>
+        <div class="kv"><span>Выход</span><b><span id="v-ac_output_voltage">—</span> В</b></div>
+        <div class="kv"><span>Нагрузка</span><b><span id="v-load_percentage">—</span> %</b></div>
+      </div>
+      <div>
+        <div class="kv"><span>PV1</span><b><span id="v-pv_voltage_1">—</span> В / <span id="v-pv_current_1">—</span> А</b></div>
+        <div class="kv"><span>Температура</span><b><span id="v-temperature">—</span> °C</b></div>
+        <div class="kv"><span>Режим</span><b id="v-device_mode_text">—</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>История (PV и нагрузка)</h2>
+    <canvas id="chart"></canvas>
+    <div class="muted" id="chartinfo" style="font-size:12px;margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Уставки</h2>
+    <span class="msg" id="setmsg"></span>
+    <table><tbody id="settings"></tbody></table>
+  </div>
+
+  <footer>solar-monitor firmware · <span id="sysinfo">—</span></footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const EN = (navigator.language || 'ru').toLowerCase().indexOf('ru') !== 0;
+const T = EN ? {
+  pv:'PV, W', load:'Load, W', soc:'Battery, %', warns:'Warnings', params:'Parameters',
+  batt:'Battery', current:'Battery current', bpower:'Battery power', grid:'Grid',
+  out:'Output', loadpct:'Load', temp:'Temperature', mode:'Mode', hist:'History (PV and load)',
+  set:'Settings', apply:'Apply', saved:'Saved', err:'Error', points:'points',
+} : {
+  pv:'PV, Вт', load:'Нагрузка, Вт', soc:'АКБ, %', warns:'Предупреждения', params:'Параметры',
+  batt:'АКБ', current:'Ток АКБ', bpower:'Мощность АКБ', grid:'Сеть', out:'Выход',
+  loadpct:'Нагрузка', temp:'Температура', mode:'Режим', hist:'История (PV и нагрузка)',
+  set:'Уставки', apply:'Применить', saved:'Сохранено', err:'Ошибка', points:'точек',
+};
+const STATIC_EN = {
+  'Параметры': 'Parameters', 'Предупреждения': 'Warnings', 'Уставки': 'Settings',
+  'История (PV и нагрузка)': 'History (PV and load)', 'АКБ': 'Battery',
+  'Ток АКБ': 'Battery current', 'Мощность АКБ': 'Battery power', 'Сеть': 'Grid',
+  'Выход': 'Output', 'Нагрузка': 'Load', 'Температура': 'Temperature', 'Режим': 'Mode',
+  'PV, Вт': 'PV, W', 'Нагрузка, Вт': 'Load, W', 'Нагрузка, W': 'Load, W',
+  'АКБ, %': 'Battery, %', 'В': 'V', 'Вт': 'W', 'А': 'A',
+};
+if (EN) {
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walk.nextNode()) nodes.push(walk.currentNode);
+  nodes.forEach((n) => {
+    const key = n.nodeValue.trim();
+    if (STATIC_EN[key]) n.nodeValue = n.nodeValue.replace(key, STATIC_EN[key]);
+  });
+}
+const RU_NAMES = {
+  output_source_priority: 'Приоритет источника выхода',
+  charger_source_priority: 'Приоритет зарядки',
+  max_charge_current: 'Макс. ток заряда',
+  max_grid_charge_current: 'Макс. ток заряда от сети',
+  shutdown_battery_voltage: 'Отключение по АКБ',
+  back_to_battery_voltage: 'Возврат на АКБ',
+  to_grid_battery_voltage: 'Переход на сеть по АКБ',
+  battery_absorption_charge_voltage: 'Заряд: absorption',
+  battery_float_charge_voltage: 'Заряд: float',
+  battery_type: 'Тип АКБ / протокол BMS',
+};
+const RU_OPTIONS = {
+  'Utility first': 'Сеть', 'Solar first': 'Солнце', 'SBU': 'SBU', 'SUB': 'SUB',
+  'Solar only': 'Только солнце', 'Solar and Utility': 'Солнце и сеть',
+  'Only Solar': 'Только солнце', 'Utility only': 'Только сеть',
+};
+const label = (s) => (!EN && RU_NAMES[s.key]) ? RU_NAMES[s.key]
+  : (s.name + (s.unit ? ', ' + s.unit : ''));
+const optLabel = (name) => (!EN && RU_OPTIONS[name]) ? RU_OPTIONS[name] : name;
+const fmt = (v, d) => (v === null || v === undefined || v === '' ? '—'
+  : (typeof v === 'number' ? v.toFixed(d === undefined ? 1 : d) : v));
+const num = (v, d) => (v === null || v === undefined ? '—' : Number(v).toFixed(d === undefined ? 1 : d));
+
+function setArc(el, frac, color) {
+  const arc = el.querySelector('.arc');
+  const len = arc.getTotalLength();
+  const f = Math.max(0, Math.min(1, frac || 0));
+  arc.style.stroke = color;
+  arc.style.strokeDasharray = len;
+  arc.style.strokeDashoffset = len * (1 - f);
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok && res.status !== 400) throw new Error(res.status);
+  return res.json();
+}
+
+async function refresh() {
+  try {
+    const st = await api('/api/v1/state');
+    document.querySelectorAll('.gauge').forEach((el) => {
+      const key = el.dataset.key, max = Number(el.dataset.max);
+      const v = st[key];
+      el.querySelector('.val').textContent = num(v, key === 'battery_state_of_charge' ? 0 : 0);
+      setArc(el, v / max, el.dataset.color);
+    });
+    ['battery_voltage','battery_current','battery_power','grid_voltage',
+     'ac_output_voltage','load_percentage','pv_voltage_1','pv_current_1','temperature']
+      .forEach((k) => { const e = $('v-' + k); if (e) e.textContent = num(st[k], k.endsWith('current') ? 1 : 1); });
+    $('v-device_mode_text').textContent = st.device_mode_text || st.device_mode || '—';
+    $('mode').textContent = st.device_mode_text || st.device_mode || '—';
+    const w = st.warnings_list || (st.warnings ? String(st.warnings).split(', ') : []);
+    const real = w.filter((x) => x && !/^\s*(ok|no)\b/i.test(x) && x !== 'None');
+    $('warncard').style.display = real.length ? '' : 'none';
+    $('warns').textContent = real.join(' · ');
+    const h = st.health || {};
+    $('age').textContent = h.age_s === null || h.age_s === undefined ? '—' : (h.age_s + ' s');
+    $('age').className = 'pill' + (h.online ? '' : ' bad');
+    $('sysinfo').textContent = h.rx !== undefined ? ('rx ' + h.rx + ' / tx ' + h.tx + ' / err ' + h.errors) : '—';
+  } catch (e) { /* сеть/авторизация */ }
+}
+
+async function refreshSys() {
+  try {
+    const s = await api('/api/v1/sysinfo');
+    $('net').textContent = s.ip ? ('WiFi ' + s.ip) : 'WiFi —';
+    $('mqtt').textContent = s.mqtt_connected ? 'MQTT ok' : 'MQTT —';
+    $('mqtt').className = 'pill' + (s.mqtt_connected ? '' : ' bad');
+  } catch (e) {}
+}
+
+async function loadSettings() {
+  const data = await api('/api/v1/settings');
+  const body = $('settings');
+  body.innerHTML = '';
+  (data.settings || []).forEach((s) => {
+    const tr = document.createElement('tr');
+    const td1 = document.createElement('td');
+    td1.textContent = label(s);
+    const td2 = document.createElement('td');
+    let input;
+    if (s.kind === 'select') {
+      input = document.createElement('select');
+      (s.options || []).forEach(([idx, name]) => {
+        const o = document.createElement('option');
+        o.value = idx; o.textContent = optLabel(name);
+        if (String(name) === String(s.value)) o.selected = true;
+        input.appendChild(o);
+      });
+    } else {
+      input = document.createElement('input');
+      input.type = 'number';
+      input.step = s.step || 0.1;
+      if (s.min !== null && s.min !== undefined) input.min = s.min;
+      if (s.max !== null && s.max !== undefined) input.max = s.max;
+      input.value = s.value === null || s.value === undefined ? '' : s.value;
+    }
+    input.dataset.key = s.key;
+    const td3 = document.createElement('td');
+    const btn = document.createElement('button');
+    btn.textContent = T.apply;
+    const msg = document.createElement('span');
+    msg.className = 'msg';
+    btn.onclick = async () => {
+      btn.disabled = true; msg.textContent = '…'; msg.className = 'msg';
+      try {
+        const res = await api('/api/v1/settings', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({key: s.key, value: input.value}),
+        });
+        msg.textContent = res.ok ? (res.message || T.saved) : (res.message || T.err);
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+      } catch (e) {
+        msg.textContent = T.err + ' ' + e.message; msg.className = 'msg err';
+      }
+      btn.disabled = false;
+      setTimeout(() => { msg.textContent = ''; }, 6000);
+    };
+    td2.appendChild(input); td3.appendChild(btn); td3.appendChild(msg);
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+    body.appendChild(tr);
+  });
+}
+
+let chartData = null;
+async function loadHistory() {
+  try {
+    chartData = await api('/api/v1/history?limit=720');
+    drawChart();
+    const rows = (chartData.rows || []);
+    $('chartinfo').textContent = rows.length + ' ' + T.points;
+  } catch (e) {}
+}
+
+function drawChart() {
+  const c = $('chart');
+  if (!c || !chartData) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight || 150;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  const rows = chartData.rows || [];
+  if (rows.length < 2) { return; }
+  const max = Math.max(1000, ...rows.map((r) => Math.max(r[1], r[2])));
+  const X = (i) => (i / (rows.length - 1)) * (w - 2) + 1;
+  const Y = (v) => h - 2 - (v / max) * (h - 6);
+  const line = (idx, color) => {
+    g.beginPath(); g.strokeStyle = color; g.lineWidth = 1.8; g.lineJoin = 'round';
+    rows.forEach((r, i) => (i ? g.lineTo(X(i), Y(r[idx])) : g.moveTo(X(i), Y(r[idx]))));
+    g.stroke();
+  };
+  g.strokeStyle = 'rgba(128,128,128,.25)'; g.lineWidth = 1;
+  for (let k = 0; k <= 2; k++) { const y = Y((max / 2) * k); g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+  line(1, '#f5a524');
+  line(2, '#1c7ed6');
+}
+
+$('chart') && window.addEventListener('resize', drawChart);
+refresh(); refreshSys(); loadSettings(); loadHistory();
+setInterval(refresh, 2000);
+setInterval(refreshSys, 10000);
+setInterval(loadHistory, 60000);
+</script>
+</body>
+</html>

@@ -22,3 +22,6 @@ venv/
 
 # память проекта (личные заметки, адреса, серийники) — не для публики
 AGENTS.md
+.venv-esp/
+*.bin
+firmware/esp32/config.json
