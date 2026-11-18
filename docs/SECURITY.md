@@ -46,6 +46,19 @@ AUTH_PASSWORD=<пароль>
   сертификат в доверенные на своих устройствах.
 * Сертификаты лежат в `data/certs/` и монтируются в контейнер как `/certs:ro`.
 
+## Grafana за Caddy (HTTPS + Basic)
+
+Grafana слушает только `127.0.0.1:3000`, наружу — Caddy на `https://<host>:3443/`:
+
+```bash
+./tools/set-grafana-proxy.sh 'пароль' admin     # создаёт data/caddy.env
+docker compose up -d --force-recreate caddy
+```
+
+**Грабли:** Compose интерполирует значения из `env_file`, поэтому `$` в bcrypt-хэше надо
+экранировать как `$$` — иначе хэш превращается в `$2a$14` и Caddy отвечает
+`hashedSecret too short to be a bcrypted password`. Скрипт делает это сам.
+
 ## Смена пароля из интерфейса
 
 **Настройки → Уставки → «Доступ к интерфейсу»**: текущий пароль, новый и подтверждение.

@@ -66,6 +66,17 @@
 Клиент сам пересобирается при падении цикла; смотрите `mqtt_restarts` в `/healthz`. Если растёт —
 проверьте брокер и сеть. `OFFLINE_AFTER` не даёт «дёргаться» статусу при коротких обрывах.
 
+## Caddy: `hashedSecret too short to be a bcrypted password`
+**Причина:** Compose подставляет переменные в `env_file`, и `$` в bcrypt-хэше «съедаются»
+(остаётся `$2a$14`).
+**Решение:** `./tools/set-grafana-proxy.sh '<пароль>'` (экранирует `$` → `$$`) и
+`docker compose up -d --force-recreate caddy`. Проверка: `docker exec solar-caddy sh -c 'printf %s "$GRAFANA_PROXY_HASH"' | wc -c` → 60.
+
+## Коллектор просит пароль, а `.env`-пароль не подходит
+**Причина:** пароль меняли в UI — он лежит в `/data/auth.json` и перекрывает `.env`.
+**Решение:** либо вводите новый пароль, либо удалите файл:
+`docker compose exec collector rm /data/auth.json && docker compose restart collector`.
+
 ## Офисный сайт: кнопки «Применить» отключены
 Это `TRANSPORT=sa-mqtt` — данные импортируются из SolarAssistant. Кнопки включаются, если
 переключить сайт на прямое подключение (коллектор перезапустится). Помните: физический USB
