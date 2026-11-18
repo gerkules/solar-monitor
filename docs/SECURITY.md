@@ -11,11 +11,25 @@
 
 Если к сети есть доступ у гостей/устройств IoT — включите авторизацию.
 
+## Пароль: где он лежит
+
+| Что | Где | Примечание |
+|---|---|---|
+| Логин/пароль по умолчанию | `.env` → `AUTH_USER=admin`, `AUTH_PASSWORD=admin` | **смените после установки** |
+| Пароль, изменённый в интерфейсе | `/data/auth.json` (PBKDF2-хэш, `0600`) | перекрывает `.env` |
+| Grafana за Caddy (`:3443`) | `data/caddy.env` (bcrypt) | генерируется `tools/set-grafana-proxy.sh` |
+| Сам Grafana | `GRAFANA_PASSWORD` в `.env` (первый старт) | логин внутри Grafana |
+
+Если задан пароль в интерфейсе, `auth.json` главнее; «забыл» = удалить файл
+(`docker compose exec collector rm /data/auth.json`) и перезапустить → вернётся `.env`-пароль.
+Пока действует `admin/admin`, в интерфейсе висит красная плашка с напоминанием, а в лог пишется
+предупреждение.
+
 ## Вариант 1: HTTP Basic (минимум)
 
 ```dotenv
 AUTH_USER=admin
-AUTH_PASSWORD=<сгенерируйте: openssl rand -hex 8>
+AUTH_PASSWORD=admin        # смените сразу после установки (или ./tools/deploy.sh --auth --random-password)
 ```
 
 * закрывает UI и весь `/api/v1/*`, кроме `/healthz` (нужен docker healthcheck);

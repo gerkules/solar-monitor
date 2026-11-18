@@ -125,6 +125,9 @@ def main() -> int:
         log.info("ui auth: HTTP Basic (%s)", config.AUTH_USER)
     else:
         log.warning("ui auth is OFF: anyone on the network can change inverter settings")
+    if auth_store.info().get("default_password"):
+        log.warning("ПАРОЛЬ ПО УМОЛЧАНИЮ (%s/%s): смените его в Настройки → Уставки → Доступ",
+                    auth_mod.DEFAULT_USER, auth_mod.DEFAULT_PASSWORD)
 
     # --- shutdown ------------------------------------------------------------
     stop = threading.Event()

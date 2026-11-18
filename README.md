@@ -37,7 +37,8 @@ $EDITOR .env
 docker compose up -d --build
 ```
 
-* UI + API — `http://<host>:8080/`
+* UI + API — `http://<host>:8080/` — вход **`admin` / `admin`**, смените пароль сразу
+  (Настройки → Уставки → «Доступ к интерфейсу»)
 * Grafana — `http://<host>:3000/` (папка **Solar**)
 * health — `http://<host>:8080/healthz`
 

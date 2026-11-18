@@ -50,6 +50,9 @@ docker compose up -d --build
 docker compose logs -f collector
 ```
 
+После первого запуска: **логин `admin`, пароль `admin`** (из `.env`) — сразу смените его в
+интерфейсе: Настройки → Уставки → «Доступ к интерфейсу».
+
 Открыть:
 * UI + API — `http://<host>:8080/`
 * Grafana — `http://<host>:3000/` (папка Solar → Solar overview)

@@ -499,6 +499,7 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
             return JSONResponse({"error": repr(ex)}, status_code=500)
 
     # ---- auth ---------------------------------------------------------------
+    from . import auth as auth_mod
     @app.get("/api/v1/auth")
     def auth_info(request: Request):
         if not _authorized(request):
@@ -506,7 +507,9 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
         if auth_store is None:
             return {"enabled": False, "source": "off", "user": None, "min_length": 6}
         info = auth_store.info()
-        info["min_length"] = 6
+        info["min_length"] = auth_mod.MIN_LENGTH
+        info["default_credentials"] = {"user": auth_mod.DEFAULT_USER,
+                                       "password": auth_mod.DEFAULT_PASSWORD}
         return info
 
     @app.post("/api/v1/auth/password")

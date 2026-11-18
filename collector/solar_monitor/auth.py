@@ -21,6 +21,10 @@ log = logging.getLogger("auth")
 ITERATIONS = 200_000
 ALGO = "pbkdf2_sha256"
 MIN_LENGTH = 6
+# Пароль «из коробки»: его знает любой, кто прочитал README, поэтому UI настойчиво
+# предлагает сменить его, а в лог пишется предупреждение.
+DEFAULT_USER = "admin"
+DEFAULT_PASSWORD = "admin"
 
 
 def hash_password(password: str, salt: bytes | None = None,
@@ -73,12 +77,19 @@ class AuthStore:
     def enabled(self) -> bool:
         return bool(self.data.get("user")) or bool(config.AUTH_USER and config.AUTH_PASSWORD)
 
+    def is_default(self) -> bool:
+        """Действует ли ещё пароль по умолчанию (только для варианта из .env)."""
+        return (not self.data.get("user")
+                and (config.AUTH_PASSWORD or "") == DEFAULT_PASSWORD)
+
     def info(self) -> dict:
         if self.data.get("user"):
             return {"user": self.data["user"], "source": "file",
-                    "updated": self.data.get("updated"), "enabled": True}
+                    "updated": self.data.get("updated"), "enabled": True,
+                    "default_password": False}
         return {"user": config.AUTH_USER, "source": "env" if config.AUTH_USER else "off",
-                "updated": None, "enabled": bool(config.AUTH_USER and config.AUTH_PASSWORD)}
+                "updated": None, "enabled": bool(config.AUTH_USER and config.AUTH_PASSWORD),
+                "default_password": self.is_default()}
 
     # -- проверка -------------------------------------------------------------
     def check(self, user: str, password: str) -> bool:

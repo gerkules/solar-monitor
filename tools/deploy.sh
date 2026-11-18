@@ -22,6 +22,7 @@ NO_START=0
 OFFICE=0
 WITH_AUTH=0
 WITH_TLS=0
+RANDOM_PASSWORD=0
 
 die() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 ok()  { printf '\033[32m✓ %s\033[0m\n' "$*"; }
@@ -36,6 +37,7 @@ while [ $# -gt 0 ]; do
     --mqtt-host) MQTT_HOST="${2:?}"; shift 2 ;;
     --office) OFFICE=1; shift ;;
     --auth) WITH_AUTH=1; shift ;;
+    --random-password) RANDOM_PASSWORD=1; shift ;;
     --tls) WITH_TLS=1; shift ;;
     --no-build) NO_BUILD=1; shift ;;
     --no-start) NO_START=1; shift ;;
@@ -89,12 +91,17 @@ set_env() {  # set_env KEY VALUE — заменить или добавить с
 
 # ---------------------------------------------------------------- авторизация и TLS
 if [ "$WITH_AUTH" = "1" ]; then
-  AUTH_PASS="$(rand 8)"
+  if [ "$WITH_AUTH" = "1" ] && [ "${RANDOM_PASSWORD:-0}" = "1" ]; then
+    AUTH_PASS="$(rand 8)"
+    set_env AUTH_PASSWORD "$AUTH_PASS"
+    ok "включена HTTP Basic авторизация: admin / $AUTH_PASS"
+  else
+    ok "включена HTTP Basic авторизация: admin / admin (пароль по умолчанию)"
+    info "СМЕНИТЕ его после установки: интерфейс → Настройки → Уставки → «Доступ к интерфейсу»"
+  fi
   set_env AUTH_USER admin
-  set_env AUTH_PASSWORD "$AUTH_PASS"
-  ok "включена HTTP Basic авторизация: admin / $AUTH_PASS"
   info "если сайтов несколько — задайте ОДИНАКОВЫЕ AUTH_USER/AUTH_PASSWORD в каждом .env"
-  info "либо укажите креды пира: PEER_SITES={\"office\":{\"url\":\"https://…\",\"user\":\"admin\",\"pass\":\"…\"}}"
+  info "случайный пароль вместо admin: ./tools/deploy.sh --auth --random-password"
 fi
 
 if [ "$WITH_TLS" = "1" ]; then
@@ -160,6 +167,9 @@ printf '  UI + API : http://%s:%s/\n' "$(hostname -I 2>/dev/null | awk '{print $
 printf '  health   : http://127.0.0.1:%s/healthz\n' "$API_PORT"
 printf '  Grafana  : http://127.0.0.1:%s/ (см. GRAFANA_PASSWORD в .env)\n' "$GRAFANA_PORT"
 printf '  состояние: curl -s localhost:%s/api/v1/state | jq .device_mode\n' "$API_PORT"
+if grep -qE '^AUTH_PASSWORD=admin$' .env 2>/dev/null; then
+  printf '\n  ВНИМАНИЕ: пароль по умолчанию admin/admin — смените в Настройки → Уставки → Доступ\n'
+fi
 echo
 info "логи: docker compose logs -f collector"
 info "подключение и уставки меняются в UI: Настройки → Подключение / Уставки"

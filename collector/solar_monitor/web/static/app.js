@@ -1143,6 +1143,26 @@ function relayoutCharts() {
 }
 
 /* ---------------------------------------------------------------- settings */
+let AUTH_INFO = null;
+
+async function renderAuthAlert() {
+  const host = $('auth-alert');
+  if (!host) return;
+  if (!AUTH_INFO) {
+    try { AUTH_INFO = await (await fetch(api('/api/v1/auth'))).json(); } catch (e) { return; }
+  }
+  if (!AUTH_INFO.default_password) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  const d = AUTH_INFO.default_credentials || { user: 'admin', password: 'admin' };
+  host.style.display = '';
+  host.className = 'card';
+  host.innerHTML = `<div class="body" style="padding:12px 14px">
+    <b>🔑 ${esc(t('auth.default_title'))}</b>
+    <div class="muted" style="font-size:.9em;margin-top:4px">
+      ${esc(t('auth.default_text'))} <code>${esc(d.user)} / ${esc(d.password)}</code>.
+      <a href="#/settings" style="margin-left:6px">${esc(t('auth.default_link'))}</a>
+    </div></div>`;
+}
+
 async function loadAuth() {
   const info = $('auth-info');
   if (!info) return;
@@ -1410,6 +1430,7 @@ function render() {
   $('age').textContent = age === null ? '' : age + ' с';
 
   renderOverview();
+  if (!AUTH_INFO || !AUTH_INFO.default_password) renderAuthAlert();
   if (view === 'inverter') renderInverter();
   if (view === 'battery') renderBattery();
   if (view === 'grid') renderGrid();

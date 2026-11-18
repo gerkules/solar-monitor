@@ -76,7 +76,7 @@
 | `API_HOST`, `API_PORT` | `0.0.0.0`, `8080` | адрес UI/API внутри контейнера |
 | `API_HOST_PORT` | `8080` | порт на хосте (compose) |
 | `API_TOKEN` | — | требовать `Authorization: Bearer` |
-| `AUTH_USER`, `AUTH_PASSWORD` | — | HTTP Basic для UI и API (кроме `/healthz`) |
+| `AUTH_USER`, `AUTH_PASSWORD` | `admin`, `admin` | HTTP Basic для UI и API (кроме `/healthz`); смените пароль после установки |
 | `AUTH_FILE` | `/data/auth.json` | пароль, изменённый в UI (PBKDF2-хэш), перекрывает `AUTH_*` |
 | `TLS_CERT`, `TLS_KEY` | — | пути к сертификату/ключу в контейнере → HTTPS на `API_PORT` |
 | `PEER_TLS_VERIFY` | `false` | проверять сертификат соседнего сайта |
