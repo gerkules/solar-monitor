@@ -1,0 +1,5 @@
+paho-mqtt>=2.0,<3
+# serial transport (USB-RS232/RS485 adapter). Not needed for tcp/mqtt/hid.
+pyserial>=3.5,<4
+fastapi>=0.110,<1
+uvicorn>=0.27,<1

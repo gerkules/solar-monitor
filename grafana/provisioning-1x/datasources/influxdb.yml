@@ -1,0 +1,14 @@
+apiVersion: 1
+
+datasources:
+  # InfluxDB 1.x (InfluxQL) — for Synology, where InfluxDB 2.x hangs.
+  - name: InfluxDB
+    uid: influxdb
+    type: influxdb
+    access: proxy
+    isDefault: true
+    url: http://influxdb:8086
+    database: ${INFLUX_DB}
+    jsonData:
+      dbName: ${INFLUX_DB}
+      timeInterval: 10s

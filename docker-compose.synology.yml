@@ -1,0 +1,22 @@
+# Override for Synology DSM: InfluxDB 2.x hangs there in D-state (bolt + btrfs +
+# old kernel), so use 1.8 + InfluxQL instead.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d --build
+#
+# Also needed in .env:  INFLUX_MODE=1.8  INFLUX_DB=solar
+# and the dashboard must be generated for InfluxQL:
+#   INFLUX_MODE=1.8 python3 tools/make_dashboard.py
+services:
+  grafana:
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./grafana/provisioning-1x:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  influxdb:
+    image: influxdb:1.8
+    environment:
+      INFLUXDB_DB: "${INFLUX_DB:-solar}"
+      INFLUXDB_HTTP_FLUX_ENABLED: "false"
+    volumes:
+      - ./data/influxdb:/var/lib/influxdb

@@ -1,0 +1,21 @@
+# секреты и локальные данные
+.env
+.env.*
+!.env.example
+!.env.office.example
+data/
+*.log
+
+# эталонные материалы (CSS SolarAssistant и пр.)
+.ref/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/

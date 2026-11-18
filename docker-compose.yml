@@ -1,0 +1,96 @@
+# One stack for every host: mini PC, VDS or Synology NAS.
+# Only `collector` talks to the inverter; InfluxDB and Grafana are pure containers,
+# so the same file runs with a USB cable plugged in or on a VDS with a remote dongle.
+
+services:
+  collector:
+    build: ./collector
+    image: solar-monitor-collector:latest
+    container_name: solar-collector
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${API_BIND:-0.0.0.0}:${API_HOST_PORT:-8080}:8080"
+    volumes:
+      - ./data/collector:/data
+    # --- physical connection (USB-HID or USB-RS232) -------------------------
+    # Uncomment the one you use. On a VDS there is no USB: keep TRANSPORT=tcp.
+    # devices:
+    #   - /dev/hidraw0:/dev/hidraw0
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    # group_add:
+    #   - dialout
+    depends_on:
+      influxdb:
+        condition: service_started
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: solar-influxdb
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: "${INFLUX_USER:-admin}"
+      DOCKER_INFLUXDB_INIT_PASSWORD: "${INFLUX_PASSWORD:?set INFLUX_PASSWORD in .env}"
+      DOCKER_INFLUXDB_INIT_ORG: "${INFLUX_ORG:-solar}"
+      DOCKER_INFLUXDB_INIT_BUCKET: "${INFLUX_BUCKET:-solar}"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_TOKEN:?set INFLUX_TOKEN in .env}"
+      DOCKER_INFLUXDB_INIT_RETENTION: "${INFLUX_RETENTION:-30d}"
+    volumes:
+      - ./data/influxdb:/var/lib/influxdb2
+      - ./data/influxdb-config:/etc/influxdb2
+    ports:
+      - "127.0.0.1:${INFLUX_PORT:-8086}:8086"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: solar-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD in .env}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_INSTALL_PLUGINS: ""
+      INFLUX_TOKEN: "${INFLUX_TOKEN}"
+      INFLUX_ORG: "${INFLUX_ORG:-solar}"
+      INFLUX_BUCKET: "${INFLUX_BUCKET:-solar}"
+      SITE: "${SITE:-office}"
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - influxdb
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Optional local broker. Leave it out if you already have Mosquitto
+  # (home-lab case) and just point MQTT_HOST at it.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: solar-mosquitto
+    profiles: ["local-broker"]
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./data/mosquitto:/mosquitto/data
+      - ./data/mosquitto-log:/mosquitto/log
+    ports:
+      - "1883:1883"

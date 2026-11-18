@@ -1,0 +1,23 @@
+# Second site: import a running SolarAssistant installation instead of touching
+# the inverter (its USB port belongs to SolarAssistant).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.office.yml up -d --build
+#
+# .env.office: SITE=office, MQTT_PREFIX=solar/office, TRANSPORT=sa-mqtt,
+#              SA_MQTT_HOST=<ip SolarAssistant>, API_HOST_PORT=8081
+services:
+  collector-office:
+    build: ./collector
+    image: solar-monitor-collector:latest
+    container_name: solar-collector-office
+    restart: unless-stopped
+    env_file: .env.office
+    ports:
+      - "${OFFICE_API_PORT:-8081}:8080"
+    volumes:
+      - ./data/collector-office:/data
+    depends_on:
+      - influxdb
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
