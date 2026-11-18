@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установить зависимости коллектора
+        run: pip install -r collector/requirements.txt
+
+      - name: Тесты (PI30, транспорты, BMS, правила, API)
+        working-directory: collector
+        run: python -m unittest discover -s tests -v
+
+      - name: Проверка синтаксиса фронтенда
+        run: |
+          node --check collector/solar_monitor/web/static/app.js
+          node --check collector/solar_monitor/web/static/i18n.js
+
+      - name: Сборка образа
+        run: docker build -t solar-monitor-collector:ci collector
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверка docker-compose
+        run: |
+          cp .env.example .env
+          sed -i 's/^INFLUX_PASSWORD=.*/INFLUX_PASSWORD=ci-password/' .env
+          sed -i 's/^GRAFANA_PASSWORD=.*/GRAFANA_PASSWORD=ci-password/' .env
+          sed -i 's/^INFLUX_TOKEN=.*/INFLUX_TOKEN=ci-token/' .env
+          docker compose config >/dev/null
+          docker compose -f docker-compose.yml -f docker-compose.synology.yml config >/dev/null
