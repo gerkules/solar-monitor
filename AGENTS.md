@@ -3,6 +3,15 @@
 Открытый аналог SolarAssistant (Voltronic/Axpert PI30) в Docker: mini PC / VDS / NAS.
 Каталог: `~/solar-monitor`. Аудит эталона: `~/solar-analog/AUDIT.md`.
 
+## Репозиторий
+
+* **GitHub:** https://github.com/gerkules/solar-monitor (публичный, ветка `main`)
+* Git identity в репо: `gerkules <gerkules@users.noreply.github.com>`, push по SSH-ключу
+  `~/.ssh/id_ed25519` (добавлен в GitHub).
+* CI: `.github/workflows/ci.yml` — 179 тестов, `node --check`, сборка образа, проверка compose.
+* Копия проекта на NAS (без `data/` и `.ref/`): `/volume1/WD4/AI/solar-monitor`.
+* Пуш: `cd ~/solar-monitor && git add -A && git commit -m "…" && git push`.
+
 ## Где что запущено
 
 | Хост | Роль | Как заходить |
