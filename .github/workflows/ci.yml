@@ -40,5 +40,7 @@ jobs:
           sed -i 's/^INFLUX_PASSWORD=.*/INFLUX_PASSWORD=ci-password/' .env
           sed -i 's/^GRAFANA_PASSWORD=.*/GRAFANA_PASSWORD=ci-password/' .env
           sed -i 's/^INFLUX_TOKEN=.*/INFLUX_TOKEN=ci-token/' .env
+          mkdir -p data/certs
+          printf 'GRAFANA_PROXY_USER=admin\nGRAFANA_PROXY_HASH=$2a$14$ciDummyHashForComposeValidation\n' > data/caddy.env
           docker compose config >/dev/null
           docker compose -f docker-compose.yml -f docker-compose.synology.yml config >/dev/null

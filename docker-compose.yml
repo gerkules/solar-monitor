@@ -89,9 +89,10 @@ services:
     image: caddy:2
     container_name: solar-caddy
     restart: unless-stopped
-    environment:
-      GRAFANA_PROXY_USER: "${GRAFANA_PROXY_USER:-admin}"
-      GRAFANA_PROXY_HASH: "${GRAFANA_PROXY_HASH:?set GRAFANA_PROXY_HASH in .env (caddy hash-password)}"
+    # логин/хэш пароля для Basic — в отдельном файле (в git не попадает):
+    #   printf 'GRAFANA_PROXY_USER=admin\nGRAFANA_PROXY_HASH=%s\n' "$(docker run --rm caddy:2 caddy hash-password --plaintext 'pass')" > data/caddy.env
+    env_file:
+      - ./data/caddy.env
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/certs:/certs:ro
