@@ -15,8 +15,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Установить зависимости коллектора
-        run: pip install -r collector/requirements.txt
+      - name: Установить зависимости (runtime + dev)
+        run: pip install -r collector/requirements-dev.txt
 
       - name: Тесты (PI30, транспорты, BMS, правила, API)
         working-directory: collector
