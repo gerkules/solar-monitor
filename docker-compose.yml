@@ -13,6 +13,7 @@ services:
       - "${API_BIND:-0.0.0.0}:${API_HOST_PORT:-8080}:8080"
     volumes:
       - ./data/collector:/data
+      - ./data/certs:/certs:ro        # TLS_CERT=/certs/server.crt (см. tools/gen-cert.sh)
     # --- physical connection (USB-HID or USB-RS232) -------------------------
     # Uncomment the one you use. On a VDS there is no USB: keep TRANSPORT=tcp.
     # devices:

@@ -145,7 +145,8 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
         """`?site=<peer>` — запрос уходит на API другого сайта (у него свой транспорт
         и свои уставки). Так один UI управляет несколькими инверторами."""
         site = request.query_params.get("site")
-        base = config.PEER_SITES.get(site) if site and site != config.SITE else None
+        peer = config.PEER_SITES.get(site) if site and site != config.SITE else None
+        base = peer.get("url") if isinstance(peer, dict) else peer
         if base and request.url.path.startswith("/api/v1/"):
             import urllib.error
             import urllib.parse
@@ -163,8 +164,21 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
             def _do():
                 req = urllib.request.Request(url, data=body or None,
                                              method=request.method, headers=headers)
+                # у соседа могут быть свои Basic-креды (или self-signed сертификат)
+                if isinstance(peer, dict) and peer.get("user"):
+                    import base64
+                    cred = base64.b64encode(
+                        f"{peer['user']}:{peer.get('pass', '')}".encode()).decode()
+                    req.add_header("Authorization", f"Basic {cred}")
+                ctx = None
+                if url.startswith("https") and not config.PEER_TLS_VERIFY:
+                    import ssl
+                    ctx = ssl._create_unverified_context()
                 try:
-                    with urllib.request.urlopen(req, timeout=20) as resp:
+                    kwargs = {"timeout": 20}
+                    if ctx is not None:
+                        kwargs["context"] = ctx
+                    with urllib.request.urlopen(req, **kwargs) as resp:
                         return resp.status, resp.read(), resp.headers.get("Content-Type")
                 except urllib.error.HTTPError as err:
                     return err.code, err.read(), None

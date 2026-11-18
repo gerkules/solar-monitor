@@ -124,6 +124,13 @@ API_TOKEN = os.getenv("API_TOKEN") or None
 AUTH_USER = os.getenv("AUTH_USER") or None
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD") or None
 
+# ---- HTTPS (опционально) ----------------------------------------------------
+# Если заданы оба пути — сервер поднимается по HTTPS на API_PORT.
+TLS_CERT = os.getenv("TLS_CERT") or None
+TLS_KEY = os.getenv("TLS_KEY") or None
+# Проверять сертификат соседнего сайта (self-signed -> обычно false)
+PEER_TLS_VERIFY = _bool("PEER_TLS_VERIFY", False)
+
 # ---- battery monitoring (source selection, like SolarAssistant) -------------
 # inverter | emulated | jbd | pylontech | modbus | vedirect | can
 # A selection made in the UI is stored in BATTERY_CONFIG_FILE and wins over env.

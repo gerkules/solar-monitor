@@ -16,6 +16,7 @@ services:
       - "${OFFICE_API_PORT:-8081}:8080"
     volumes:
       - ./data/collector-office:/data
+      - ./data/certs:/certs:ro
     depends_on:
       - influxdb
     logging:

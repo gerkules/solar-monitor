@@ -20,6 +20,8 @@ MQTT_HOST=""
 NO_BUILD=0
 NO_START=0
 OFFICE=0
+WITH_AUTH=0
+WITH_TLS=0
 
 die() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 ok()  { printf '\033[32m✓ %s\033[0m\n' "$*"; }
@@ -33,6 +35,8 @@ while [ $# -gt 0 ]; do
     --tcp-port) TCP_PORT="${2:?}"; shift 2 ;;
     --mqtt-host) MQTT_HOST="${2:?}"; shift 2 ;;
     --office) OFFICE=1; shift ;;
+    --auth) WITH_AUTH=1; shift ;;
+    --tls) WITH_TLS=1; shift ;;
     --no-build) NO_BUILD=1; shift ;;
     --no-start) NO_START=1; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
@@ -82,6 +86,29 @@ set_env() {  # set_env KEY VALUE — заменить или добавить с
 [ -n "$TCP_HOST" ] && { set_env TCP_HOST "$TCP_HOST"; ok "TCP_HOST=$TCP_HOST"; }
 [ -n "$TCP_PORT" ] && { set_env TCP_PORT "$TCP_PORT"; ok "TCP_PORT=$TCP_PORT"; }
 [ -n "$MQTT_HOST" ] && { set_env MQTT_HOST "$MQTT_HOST"; ok "MQTT_HOST=$MQTT_HOST"; }
+
+# ---------------------------------------------------------------- авторизация и TLS
+if [ "$WITH_AUTH" = "1" ]; then
+  AUTH_PASS="$(rand 8)"
+  set_env AUTH_USER admin
+  set_env AUTH_PASSWORD "$AUTH_PASS"
+  ok "включена HTTP Basic авторизация: admin / $AUTH_PASS"
+  info "если сайтов несколько — задайте ОДИНАКОВЫЕ AUTH_USER/AUTH_PASSWORD в каждом .env"
+  info "либо укажите креды пира: PEER_SITES={\"office\":{\"url\":\"https://…\",\"user\":\"admin\",\"pass\":\"…\"}}"
+fi
+
+if [ "$WITH_TLS" = "1" ]; then
+  ./tools/gen-cert.sh "$(hostname)" >/dev/null 2>&1 || true
+  if [ -f data/certs/server.crt ]; then
+    set_env TLS_CERT /certs/server.crt
+    set_env TLS_KEY /certs/server.key
+    ok "включён HTTPS (data/certs/server.crt, самоподписанный)"
+    info "браузер покажет предупреждение о сертификате — это ожидаемо"
+    info "healthcheck понимает и http, и https"
+  else
+    info "openssl недоступен — сертификат не создан, пропускаю TLS"
+  fi
+fi
 
 # ---------------------------------------------------------------- данные
 info "готовлю каталоги данных"
