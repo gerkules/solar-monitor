@@ -15,7 +15,7 @@ STATE = {
     "load_power": 900, "grid_power": 0, "battery_power": -200,
     "battery_voltage": 52.6, "battery_state_of_charge": 88,
     "device_mode": "Battery", "warnings": "none", "mains_ok": 1,
-    "serial_number": "96342404105016", "rated_power": 11000,
+    "serial_number": "TEST000000000001", "rated_power": 11000,
     "output_source_priority": "SBU", "charger_source_priority": "Solar only",
     "max_charge_current": 150, "battery_float_charge_voltage": 57.6,
     "pv_energy_today": 3.42, "load_energy_today": 2.10, "grid_energy_today": 0.0,

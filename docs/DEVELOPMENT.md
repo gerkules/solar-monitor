@@ -78,7 +78,7 @@ from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_context(**p.devices["iPhone 12"]).new_page()
-    pg.goto("http://192.168.31.115:8080/?theme=dark#/charts", wait_until="load")
+    pg.goto("http://192.168.1.50:8080/?theme=dark#/charts", wait_until="load")
     pg.wait_for_timeout(5000)
     pg.screenshot(path="/tmp/charts.png", full_page=True)
     b.close()

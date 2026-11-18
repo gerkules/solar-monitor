@@ -5,7 +5,7 @@
 ## 1. Ядро коллектора
 PI30-парсеры (QPIGS/QPIGS2/QPIRI/QMOD/QID/QPIWS), CRC, четыре транспорта (USB-HID, USB-RS232, TCP,
 MQTT-сокет), опрос с интервалами, MQTT с SA-совместимыми топиками и HA discovery, InfluxDB,
-HTTP API. Проверено на живом инверторе (Axpert 11 кВт, S/N 96342404105016).
+HTTP API. Проверено на живом инверторе (Axpert 11 кВт, S/N TEST000000000001).
 
 ## 2. Уставки с проверкой
 Запись 9 параметров PI30 + подтверждение чтением QPIRI (аналог `set_verified`), HA `select`/`number`.

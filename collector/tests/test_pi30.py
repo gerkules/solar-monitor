@@ -1,5 +1,5 @@
 """Unit tests for the PI30 layer. Frames below are real captures from an
-Axpert 11 kW (S/N 96342404105016) taken over the EW10 TCP socket."""
+Axpert 11 kW (S/N TEST000000000001) taken over the EW10 TCP socket."""
 import os
 import sys
 import unittest
@@ -13,7 +13,7 @@ QPIGS = (b'(231.3 49.9 230.2 50.0 00230 00165 002 372 52.90 000 081 0048 00.0 00
 QPIRI = (b'(230.0 47.8 230.0 50.0 47.8 11000 11000 48.0 50.0 44.8 57.6 57.6 8 002 150'
          b' 1 2 3 9 01 0 0 52.0 0 1 480 0 150@\xc6\r')
 QMOD = b'(B\xe7\xc9\r'
-QID = b'(96342404105016\xa1*\r'
+QID = b'(TEST000000000001\x10#\r'
 QPIGS2 = b'(00.0 000.0 00000 E\x93\r'
 QPIWS = b'(0000000000000000000000000000000000000000\x00\x00\r'
 
@@ -70,7 +70,7 @@ class TestParsers(unittest.TestCase):
 
     def test_qmod_qid_qpigs2(self):
         self.assertEqual(pi30.parse_qmod(QMOD)["device_mode"], "Battery")
-        self.assertEqual(pi30.parse_qid(QID)["serial_number"], "96342404105016")
+        self.assertEqual(pi30.parse_qid(QID)["serial_number"], "TEST000000000001")
         d = pi30.parse_qpigs2(QPIGS2)
         self.assertEqual(d["pv_power_2"], 0)
 
@@ -97,7 +97,7 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(pi30.parse_qmod(QMOD)["mode_code"], "B")
 
     def test_qid_rejects_garbage(self):
-        self.assertEqual(pi30.parse_qid(QID)["serial_number"], "96342404105016")
+        self.assertEqual(pi30.parse_qid(QID)["serial_number"], "TEST000000000001")
         self.assertEqual(pi30.parse_qid(b'(228.3 50.0 230.1 49.9 00207\x00\x00\r'), {})
         self.assertEqual(pi30.parse_qid(b'(abc\x00\x00\r'), {})
 

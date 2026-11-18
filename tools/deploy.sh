@@ -2,7 +2,7 @@
 # Развёртывание solar-monitor на чистой машине (VDS, mini PC, NAS).
 #
 #   ./tools/deploy.sh                                  # интерактивно всё по умолчанию
-#   ./tools/deploy.sh --site home --transport tcp --tcp-host 192.168.31.110
+#   ./tools/deploy.sh --site home --transport tcp --tcp-host 192.168.1.60
 #   ./tools/deploy.sh --dir /opt/solar-monitor --no-build
 #
 # Скрипт: проверяет Docker, создаёт .env с сгенерированными секретами (если файла нет),

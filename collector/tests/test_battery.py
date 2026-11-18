@@ -414,7 +414,7 @@ class TestConnection(unittest.TestCase):
         from solar_monitor import pi30
         frame = (b'(231.3 49.9 230.2 50.0 00230 00165 002 372 52.90 000 081 0048 00.0 000.0'
                  b' 00.00 00004 00010000 00 00 00000 010 0 00 0000?d\r')
-        qid = b'(96342404105016\xa1*\r'
+        qid = b'(TEST000000000001\x10#\r'
         qiri = (b'(230.0 47.8 230.0 50.0 47.8 11000 11000 48.0 50.0 44.8 57.6 57.6 8 002 150'
                 b' 1 2 3 9 01 0 0 52.0 0 1 480 0 150@\xc6\r')
 
@@ -432,7 +432,7 @@ class TestConnection(unittest.TestCase):
             res = self.connection.probe({"mode": "serial", "serial_port": "/dev/null"})
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["battery_voltage"], 52.9)
-        self.assertEqual(res["serial_number"], "96342404105016")
+        self.assertEqual(res["serial_number"], "TEST000000000001")
         self.assertEqual(res["rated_power"], 11000)
         self.assertIn("latency_ms", res)
 

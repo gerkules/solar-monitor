@@ -68,7 +68,7 @@ curl -s -X POST localhost:8080/api/v1/settings -H 'Content-Type: application/jso
 ```bash
 curl -s localhost:8080/api/v1/connection | jq '.transport, .ports'
 curl -s -X POST localhost:8080/api/v1/connection/probe -H 'Content-Type: application/json' \
-  -d '{"mode":"tcp","tcp_host":"192.168.31.110","tcp_port":9999}'
+  -d '{"mode":"tcp","tcp_host":"192.168.1.60","tcp_port":9999}'
 ```
 
 ## Батарея

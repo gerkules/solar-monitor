@@ -38,7 +38,7 @@ mosquitto_sub -h <broker> -t 'solar/home/set/response_message/state' -C 1   # â†
 
 ```conf
 connection SolarAssistant
-address 192.168.1.134
+address 192.168.1.70
 topic solar_assistant/+/+/state in
 topic homeassistant/# in
 topic solar_assistant/+/+/set out

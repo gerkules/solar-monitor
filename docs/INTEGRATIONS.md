@@ -16,7 +16,7 @@
 ```dotenv
 SITE=office
 TRANSPORT=sa-mqtt
-SA_MQTT_HOST=192.168.1.134
+SA_MQTT_HOST=192.168.1.70
 MQTT_PREFIX=solar/office
 ```
 
@@ -35,7 +35,7 @@ MQTT_PREFIX=solar/office
 Чтобы из UI одного сайта управлять другим (уставки, подключение), пропишите адреса API:
 
 ```dotenv
-PEER_SITES={"home":"http://192.168.31.115:8080","office":"http://192.168.31.115:8081"}
+PEER_SITES={"home":"http://192.168.1.50:8080","office":"http://192.168.1.50:8081"}
 ```
 
 Запросы `?site=office` проксируются на API соседа. Важно: запись уставок и смена транспорта

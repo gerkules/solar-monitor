@@ -18,7 +18,7 @@
 | Переменная | По умолчанию | Смысл |
 |---|---|---|
 | `TRANSPORT` | `tcp` | `hid` / `serial` / `tcp` / `mqtt` / `sa-mqtt` |
-| `TCP_HOST`, `TCP_PORT` | `192.168.31.110`, `9999` | донгл/шлюз для `tcp` |
+| `TCP_HOST`, `TCP_PORT` | `192.168.1.60`, `9999` | донгл/шлюз для `tcp` |
 | `SERIAL_PORT`, `SERIAL_BAUD` | `/dev/ttyUSB0`, `2400` | USB-RS232/RS485 |
 | `HID_DEVICE` | `/dev/hidraw0` | hidraw-узел (или `HID_VID`/`HID_PID` + hidapi) |
 | `HID_VID`, `HID_PID`, `HID_REPORT_ID` | `0x0665`, `0x5161`, `0` | если HID_DEVICE не путь — открытие через hidapi |

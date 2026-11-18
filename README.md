@@ -1,5 +1,9 @@
 # solar-monitor
 
+[![CI](https://github.com/gerkules/solar-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/gerkules/solar-monitor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
+
 Открытый аналог **SolarAssistant** для инверторов **Voltronic / Axpert (протокол PI30)** в Docker:
 опрос инвертора → MQTT + InfluxDB → веб-интерфейс, графики, уставки, правила, уведомления, прогноз PV.
 Ставится на **mini PC, VDS или NAS**; поддерживает несколько сайтов (инверторов) в одном UI.
@@ -42,9 +46,9 @@ docker compose up -d --build
 ```dotenv
 SITE=home
 TRANSPORT=tcp                 # hid | serial | tcp | mqtt | sa-mqtt
-TCP_HOST=192.168.31.110
+TCP_HOST=192.168.1.60
 TCP_PORT=9999
-MQTT_HOST=192.168.31.224
+MQTT_HOST=192.168.1.80
 INFLUX_TOKEN=<сгенерируйте: openssl rand -hex 24>
 INFLUX_PASSWORD=<пароль>
 GRAFANA_PASSWORD=<пароль>
@@ -90,13 +94,18 @@ docs/                 документация
 
 ## Проверено на реальном оборудовании
 
-* Инвертор **Axpert 11 кВт** (S/N 96342404105016), два MPPT, АКБ 48 В с BMS-протоколом
+* Инвертор **Axpert 11 кВт** (S/N TEST000000000001), два MPPT, АКБ 48 В с BMS-протоколом
   `LIb-protocol compatible`: опрос по TCP через донгл EW10, `QBMS` (SOC 80 %, bulk 57.6 В,
   max charge 150 А), запись уставок с подтверждением.
 * **SolarAssistant** (офисный инвертор): импорт через `sa-mqtt`, мультисайт в одном UI.
 * Смена BMS-протокола на живом инверторе: провал `PBT03` → авто-откат (opt-in) → связь вернулась
   через 20–30 с.
 * VDS 2 ядра / 1.9 ГБ: коллектор + InfluxDB + Grafana работают с запасом.
+
+## Участие
+
+PR и issue приветствуются: см. [CONTRIBUTING.md](CONTRIBUTING.md). Особенно полезны проверки
+драйверов BMS на реальных батареях и протоколы уставок для нестандартных прошивок.
 
 ## Тесты
 

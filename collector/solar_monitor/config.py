@@ -33,7 +33,7 @@ MQTT_PREFIX = os.getenv("MQTT_PREFIX", f"solar/{SITE}").rstrip("/")
 SITE_ROOT = os.getenv("SITE_ROOT") or "/".join(MQTT_PREFIX.split("/")[:-1]) or "solar"
 STATE_RETAIN = _bool("STATE_RETAIN", True)     # keeps the last state per site on the broker
 SITE_TTL = _float("SITE_TTL", 900.0)
-# {"office": "http://192.168.31.115:8081"} — чтобы один UI мог открывать настройки/подключение
+# {"office": "http://192.168.1.50:8081"} — чтобы один UI мог открывать настройки/подключение
 # другого сайта (у каждого коллектора свой транспорт и свои уставки)
 PEER_SITES = json.loads(os.getenv("PEER_SITES") or "{}")          # forget a site that has not published for N s
 HA_PREFIX = os.getenv("HA_DISCOVERY_PREFIX", "homeassistant")
@@ -44,7 +44,7 @@ ENTITY_PREFIX = os.getenv("ENTITY_PREFIX", "solar_" + SITE)   # HA entity id pre
 TRANSPORT = os.getenv("TRANSPORT", "tcp").lower()   # hid | serial | tcp | mqtt
 
 # tcp / mqtt (EW10 dongle, ser2net, ESP32 gateway, usbip...)
-TCP_HOST = os.getenv("TCP_HOST", "192.168.31.110")
+TCP_HOST = os.getenv("TCP_HOST", "192.168.1.60")
 TCP_PORT = _int("TCP_PORT", 9999)
 TCP_KEEPALIVE = _bool("TCP_KEEPALIVE", True)
 
