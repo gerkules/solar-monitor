@@ -41,6 +41,22 @@ curl -N localhost:8080/api/v1/stream        # живой поток
 
 `agg`: `mean` (по умолчанию), `max`, `min`, `sum`, `last`. `group_by`: `10s`, `1m`, `15m`, `1h`, `1d`.
 
+## Авторизация
+
+| Метод | Путь | Описание |
+|---|---|---|
+| GET | `/api/v1/auth` | `{user, source: env\|file\|off, updated, enabled, min_length}` |
+| POST | `/api/v1/auth/password` | `{"current_password","new_password"[,"user"]}` → `{ok, message, source}` |
+
+```bash
+curl -sk -u admin:pass https://<host>:8080/api/v1/auth
+curl -sk -u admin:pass -X POST https://<host>:8080/api/v1/auth/password \
+  -H 'Content-Type: application/json' \
+  -d '{"current_password":"pass","new_password":"newSecret123"}'
+```
+
+Пароль из файла перекрывает `.env`; хэш PBKDF2 в `/data/auth.json`.
+
 ## Уставки инвертора
 
 | Метод | Путь | Описание |

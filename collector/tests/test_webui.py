@@ -354,3 +354,69 @@ class TestWebUi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestPasswordChange(unittest.TestCase):
+    """Смена пароля UI: хэш в /data/auth.json перекрывает .env."""
+
+    def setUp(self):
+        import tempfile
+        from solar_monitor import auth, config, webapp
+        from solar_monitor import poller as poller_mod
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self._auth = (config.AUTH_USER, config.AUTH_PASSWORD)
+        config.AUTH_USER, config.AUTH_PASSWORD = "admin", "envpass123"
+
+        p = poller_mod.Poller(FakeTransport(), FakeMqtt(), FakeInflux())
+        p.energy.path = os.path.join(self.tmp.name, "energy.json")
+        p.bms_events.path = os.path.join(self.tmp.name, "events.json")
+        p.cycle()
+
+        self.store = auth.AuthStore(os.path.join(self.tmp.name, "auth.json"))
+        self.client = TestClient(webapp.create_app(p, auth_store=self.store))
+
+    def tearDown(self):
+        from solar_monitor import config
+        config.AUTH_USER, config.AUTH_PASSWORD = self._auth
+        self.tmp.cleanup()
+
+    def test_env_password_works(self):
+        self.assertEqual(self.client.get("/api/v1/auth", auth=("admin", "envpass123")).status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/auth", auth=("admin", "wrong")).status_code, 401)
+
+    def test_change_and_use_new_password(self):
+        r = self.client.post("/api/v1/auth/password",
+                             auth=("admin", "envpass123"),
+                             json={"current_password": "envpass123",
+                                   "new_password": "newSecret42"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["ok"])
+        self.assertEqual(r.json()["source"], "file")
+        # старый пароль больше не пускает, новый — да
+        self.assertEqual(self.client.get("/api/v1/auth", auth=("admin", "envpass123")).status_code, 401)
+        self.assertEqual(self.client.get("/api/v1/auth", auth=("admin", "newSecret42")).status_code, 200)
+        # хэш, а не открытый пароль
+        raw = open(self.store.path).read()
+        self.assertNotIn("newSecret42", raw)
+        self.assertIn("pbkdf2_sha256", raw)
+
+    def test_wrong_current_password_rejected(self):
+        r = self.client.post("/api/v1/auth/password", auth=("admin", "envpass123"),
+                             json={"current_password": "nope", "new_password": "another123"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("текущий пароль неверен", r.json()["error"])
+
+    def test_short_password_rejected(self):
+        r = self.client.post("/api/v1/auth/password", auth=("admin", "envpass123"),
+                             json={"current_password": "envpass123", "new_password": "123"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("короче", r.json()["error"])
+
+    def test_file_survives_restart(self):
+        from solar_monitor import auth
+        self.client.post("/api/v1/auth/password", auth=("admin", "envpass123"),
+                         json={"current_password": "envpass123", "new_password": "persisted1"})
+        again = auth.AuthStore(self.store.path)
+        self.assertTrue(again.check("admin", "persisted1"))
+        self.assertFalse(again.check("admin", "envpass123"))

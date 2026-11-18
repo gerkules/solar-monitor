@@ -1143,6 +1143,40 @@ function relayoutCharts() {
 }
 
 /* ---------------------------------------------------------------- settings */
+async function loadAuth() {
+  const info = $('auth-info');
+  if (!info) return;
+  try {
+    const d = await (await fetch(api('/api/v1/auth'))).json();
+    const src = { env: t('auth.src_env'), file: t('auth.src_file'), off: t('auth.src_off') }[d.source] || d.source;
+    info.textContent = d.enabled
+      ? `${t('auth.user')}: ${d.user} · ${src}` + (d.updated ? ` · ${new Date(d.updated * 1000).toLocaleString()}` : '')
+      : t('auth.disabled');
+  } catch (e) { info.textContent = t('auth.unavailable'); }
+}
+
+async function savePassword() {
+  const msg = $('auth-msg');
+  const cur = $('auth-current').value;
+  const nw = $('auth-new').value;
+  const rep = $('auth-repeat').value;
+  msg.className = 'msg';
+  if (nw !== rep) { msg.className = 'msg err'; msg.textContent = t('auth.mismatch'); return; }
+  if ((nw || '').length < 6) { msg.className = 'msg err'; msg.textContent = t('auth.too_short'); return; }
+  msg.textContent = t('set.writing');
+  const r = await fetch(api('/api/v1/auth/password'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: cur, new_password: nw }),
+  });
+  const d = await r.json();
+  msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  msg.textContent = r.ok ? '✓ ' + d.message : '✗ ' + (d.error || r.status);
+  if (r.ok) {
+    $('auth-current').value = $('auth-new').value = $('auth-repeat').value = '';
+    loadAuth();
+  }
+}
+
 async function loadSettings() {
   const grid = $('settings-grid');
   const r = await fetch(api('/api/v1/settings'));
@@ -1357,7 +1391,7 @@ function show(v) {
   if (v === 'battery') loadBattery();
   if (v === 'battery') loadBmsConfig();
   if (v === 'charts') loadCharts();
-  if (v === 'settings') loadSettings();
+  if (v === 'settings') { loadSettings(); loadAuth(); }
   if (v === 'automation') loadAutomation();
   if (v === 'codes') loadCodes();
   if (v === 'connection') loadConnection();
@@ -1579,6 +1613,7 @@ async function boot() {
     msg.textContent = okCh ? `✓ отправлено (${Object.keys(res).join(', ')})`
       : '✗ нет каналов: ' + JSON.stringify(res);
   });
+  $('auth-save').addEventListener('click', savePassword);
   $('reload-settings').addEventListener('click', async () => {
     const msg = $('reload-msg');
     msg.className = 'msg'; msg.textContent = 'читаю…';

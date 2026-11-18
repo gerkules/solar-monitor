@@ -76,3 +76,10 @@ Retained-состояния по сайтам, реестр сайтов, сел
 ## 20. Документация
 Раздел `docs/` с архитектурой, установкой, конфигурацией, API, MQTT, хранилищем, эксплуатацией,
 диагностикой и руководством разработчика.
+
+## 21. Безопасность и смена пароля
+HTTP Basic + HTTPS на `API_PORT` (self-signed, `tools/gen-cert.sh`), TLS-aware healthcheck,
+`FORCE_HTTPS`/`API_HTTPS_PORT` (HTTP+HTTPS одновременно), креды пира для мультисайта.
+Grafana закрыта Caddy (HTTPS + Basic, порт 3443), сам Grafana слушает только localhost.
+Смена пароля в UI (PBKDF2-SHA256 в `/data/auth.json`, перекрывает `.env`), `GET/POST /api/v1/auth*`.
+Документ `docs/SECURITY.md`.

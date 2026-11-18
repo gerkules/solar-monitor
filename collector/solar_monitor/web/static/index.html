@@ -516,6 +516,29 @@
 
   <!-- ======================= НАСТРОЙКИ ======================= -->
   <section class="view" id="view-settings">
+    <div class="card">
+      <h3 data-i18n="auth.title">Доступ к интерфейсу</h3>
+      <div class="body">
+        <div class="muted" id="auth-info">—</div>
+        <div class="form-grid" style="margin-top:10px">
+          <div><label data-i18n="auth.current">Текущий пароль</label>
+            <input id="auth-current" type="password" autocomplete="current-password"></div>
+          <div><label data-i18n="auth.new">Новый пароль</label>
+            <input id="auth-new" type="password" autocomplete="new-password"></div>
+          <div><label data-i18n="auth.repeat">Повторите пароль</label>
+            <input id="auth-repeat" type="password" autocomplete="new-password"></div>
+        </div>
+        <div class="form-actions">
+          <button class="primary" id="auth-save" data-i18n="auth.save">Сменить пароль</button>
+          <span class="msg" id="auth-msg"></span>
+        </div>
+        <p class="muted" style="margin-top:8px" data-i18n="auth.note">
+          Пароль хранится как PBKDF2-хэш в /data/auth.json и перекрывает .env.
+          Grafana (порт 3443) имеет свой пароль — он не меняется.
+        </p>
+      </div>
+    </div>
+
     <div class="controls">
       <button id="reload-settings" data-i18n="set.reload">Перечитать из инвертора</button>
       <span class="msg" id="reload-msg"></span>

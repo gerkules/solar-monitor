@@ -15,8 +15,9 @@ import time
 
 import uvicorn
 
-from . import battery, config, connection as conn_mod, forecast, notifier as notifier_mod, \
-    publishers, rules as rules_mod, sa_source, settings as settings_mod, sites as sites_mod, webapp
+from . import auth as auth_mod, battery, config, connection as conn_mod, forecast, \
+    notifier as notifier_mod, publishers, rules as rules_mod, sa_source, \
+    settings as settings_mod, sites as sites_mod, webapp
 from .poller import Poller
 from .transports import TransportError, make_transport
 
@@ -54,6 +55,11 @@ def main() -> int:
         conn_store.apply_to_env()
         log.info("connection: saved source=%s mode=%s",
                  conn_store.data.get("source"), conn_store.data["mode"])
+
+    auth_store = auth_mod.AuthStore(config.AUTH_FILE)
+    if auth_store.info()["source"] == "file":
+        log.info("auth: пароль из %s (перекрывает .env), пользователь %s",
+                 config.AUTH_FILE, auth_store.info()["user"])
 
     batt_cfg = config.bms_config()
     batt_store = battery.BatteryStore(config.BATTERY_CONFIG_FILE)
@@ -105,7 +111,8 @@ def main() -> int:
     batt_monitor.start()
     app = webapp.create_app(poller, notifier=notifier, rules=rule_engine,
                             forecast_svc=forecast_svc, sites=site_registry,
-                            battery=batt_monitor, connection_store=conn_store)
+                            battery=batt_monitor, connection_store=conn_store,
+                            auth_store=auth_store)
     scheme = "https" if (config.TLS_CERT and config.TLS_KEY) else "http"
     server = uvicorn.Server(uvicorn.Config(
         app, host=config.API_HOST, port=config.API_PORT,
@@ -131,7 +138,7 @@ def main() -> int:
     batt_monitor.close()
     if transport is not None:
         transport.close()
-    server.should_exit = True
+    server.shutdown()
     time.sleep(0.2)
     return 0
 

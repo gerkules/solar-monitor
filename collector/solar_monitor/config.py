@@ -124,10 +124,17 @@ API_TOKEN = os.getenv("API_TOKEN") or None
 AUTH_USER = os.getenv("AUTH_USER") or None
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD") or None
 
+# Смена пароля из UI: файл перекрывает AUTH_USER/AUTH_PASSWORD из .env
+AUTH_FILE = os.getenv("AUTH_FILE", "/data/auth.json")
+
 # ---- HTTPS (опционально) ----------------------------------------------------
-# Если заданы оба пути — сервер поднимается по HTTPS на API_PORT.
+# Если заданы оба пути — поднимается дополнительный HTTPS-листенер.
+#   TLS_CERT/TLS_KEY + API_HTTPS_PORT -> HTTP на API_PORT и HTTPS на API_HTTPS_PORT
+#   FORCE_HTTPS=true                -> только HTTPS (на API_PORT)
 TLS_CERT = os.getenv("TLS_CERT") or None
 TLS_KEY = os.getenv("TLS_KEY") or None
+API_HTTPS_PORT = _int("API_HTTPS_PORT", 0)
+FORCE_HTTPS = _bool("FORCE_HTTPS", False)
 # Проверять сертификат соседнего сайта (self-signed -> обычно false)
 PEER_TLS_VERIFY = _bool("PEER_TLS_VERIFY", False)
 

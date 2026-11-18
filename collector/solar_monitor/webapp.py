@@ -135,10 +135,11 @@ class _Described:
 
 
 def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
-               battery=None, connection_store=None) -> FastAPI:
+               battery=None, connection_store=None, auth_store=None) -> FastAPI:
     app = FastAPI(title="solar-monitor", docs_url="/api/docs", redoc_url=None,
                   openapi_url="/api/openapi.json")
-    auth_on = bool(config.AUTH_USER and config.AUTH_PASSWORD)
+    auth_on = bool((config.AUTH_USER and config.AUTH_PASSWORD)
+                   or (auth_store is not None and auth_store.info()["source"] == "file"))
 
     @app.middleware("http")
     async def peer_proxy(request: Request, call_next):
@@ -205,7 +206,12 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
                 user, _, pwd = base64.b64decode(header[6:]).decode().partition(":")
             except Exception:  # noqa: BLE001
                 user = pwd = ""
-            if user == config.AUTH_USER and pwd == config.AUTH_PASSWORD:
+            # если пароль меняли в UI — .env больше не действует (иначе старый пароль жив)
+            override = auth_store is not None and auth_store.info()["source"] == "file"
+            if override:
+                if auth_store.check(user, pwd):
+                    return await call_next(request)
+            elif user == config.AUTH_USER and pwd == config.AUTH_PASSWORD:
                 return await call_next(request)
         return JSONResponse({"error": "unauthorized"}, status_code=401,
                             headers={"WWW-Authenticate": 'Basic realm="solar-monitor"'})
@@ -491,6 +497,35 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
             return JSONResponse({"error": str(ex)}, status_code=400)
         except Exception as ex:  # noqa: BLE001
             return JSONResponse({"error": repr(ex)}, status_code=500)
+
+    # ---- auth ---------------------------------------------------------------
+    @app.get("/api/v1/auth")
+    def auth_info(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if auth_store is None:
+            return {"enabled": False, "source": "off", "user": None, "min_length": 6}
+        info = auth_store.info()
+        info["min_length"] = 6
+        return info
+
+    @app.post("/api/v1/auth/password")
+    async def auth_change(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if auth_store is None:
+            return JSONResponse({"error": "auth store недоступен"}, status_code=501)
+        body = await request.json()
+        try:
+            auth_store.set_password(body.get("current_password", ""),
+                                    body.get("new_password", ""),
+                                    body.get("user"))
+        except ValueError as ex:
+            return JSONResponse({"ok": False, "error": str(ex)}, status_code=400)
+        info = auth_store.info()
+        return {"ok": True, "message": "Пароль изменён",
+                "user": info["user"], "source": info["source"],
+                "note": "Grafana (порт 3443) имеет свой пароль — он не меняется"}
 
     # ---- inverter connection ------------------------------------------------
     @app.get("/api/v1/connection")

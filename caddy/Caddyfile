@@ -1,0 +1,16 @@
+# HTTPS + Basic-авторизация для Grafana (Grafana слушает только localhost).
+# Используется тот же самоподписанный сертификат, что и у коллектора:
+#   ./tools/gen-cert.sh <host> <ip>   ->  data/certs/server.{crt,key}
+{
+	auto_https off
+}
+
+https://:443 {
+	tls /certs/server.crt /certs/server.key
+
+	basic_auth {
+		{$GRAFANA_PROXY_USER} {$GRAFANA_PROXY_HASH}
+	}
+
+	reverse_proxy grafana:3000
+}
