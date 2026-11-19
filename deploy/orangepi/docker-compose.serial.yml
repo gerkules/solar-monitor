@@ -1,0 +1,14 @@
+# USB-RS232 / RS485 адаптер → контейнер collector.
+#
+#   docker compose -f docker-compose.yml \
+#                  -f deploy/orangepi/docker-compose.orangepi.yml \
+#                  -f deploy/orangepi/docker-compose.serial.yml up -d
+#
+# Если адаптер не /dev/ttyUSB0 (проверь `ls /dev/serial/by-id/`), поправь путь ниже
+# и SERIAL_PORT в .env на тот же.
+services:
+  collector:
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    group_add:
+      - dialout

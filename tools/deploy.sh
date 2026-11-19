@@ -3,6 +3,8 @@
 #
 #   ./tools/deploy.sh                                  # интерактивно всё по умолчанию
 #   ./tools/deploy.sh --site home --transport tcp --tcp-host 192.168.1.60
+#   ./tools/deploy.sh --transport hid --hid-device /dev/solar-inverter   # нативный USB
+#   ./tools/deploy.sh --transport serial --serial-port /dev/ttyUSB0 --serial-baud 2400
 #   ./tools/deploy.sh --dir /opt/solar-monitor --no-build
 #
 # Скрипт: проверяет Docker, создаёт .env с сгенерированными секретами (если файла нет),
@@ -16,6 +18,9 @@ SITE=""
 TRANSPORT=""
 TCP_HOST=""
 TCP_PORT=""
+SERIAL_PORT=""
+SERIAL_BAUD=""
+HID_DEVICE=""
 MQTT_HOST=""
 NO_BUILD=0
 NO_START=0
@@ -34,6 +39,9 @@ while [ $# -gt 0 ]; do
     --transport) TRANSPORT="${2:?}"; shift 2 ;;
     --tcp-host) TCP_HOST="${2:?}"; shift 2 ;;
     --tcp-port) TCP_PORT="${2:?}"; shift 2 ;;
+    --serial-port) SERIAL_PORT="${2:?}"; shift 2 ;;
+    --serial-baud) SERIAL_BAUD="${2:?}"; shift 2 ;;
+    --hid-device) HID_DEVICE="${2:?}"; shift 2 ;;
     --mqtt-host) MQTT_HOST="${2:?}"; shift 2 ;;
     --office) OFFICE=1; shift ;;
     --auth) WITH_AUTH=1; shift ;;
@@ -88,6 +96,9 @@ set_env() {  # set_env KEY VALUE — заменить или добавить с
 [ -n "$TCP_HOST" ] && { set_env TCP_HOST "$TCP_HOST"; ok "TCP_HOST=$TCP_HOST"; }
 [ -n "$TCP_PORT" ] && { set_env TCP_PORT "$TCP_PORT"; ok "TCP_PORT=$TCP_PORT"; }
 [ -n "$MQTT_HOST" ] && { set_env MQTT_HOST "$MQTT_HOST"; ok "MQTT_HOST=$MQTT_HOST"; }
+[ -n "$SERIAL_PORT" ] && { set_env SERIAL_PORT "$SERIAL_PORT"; ok "SERIAL_PORT=$SERIAL_PORT"; }
+[ -n "$SERIAL_BAUD" ] && { set_env SERIAL_BAUD "$SERIAL_BAUD"; ok "SERIAL_BAUD=$SERIAL_BAUD"; }
+[ -n "$HID_DEVICE" ] && { set_env HID_DEVICE "$HID_DEVICE"; ok "HID_DEVICE=$HID_DEVICE"; }
 
 # ---------------------------------------------------------------- авторизация и TLS
 if [ "$WITH_AUTH" = "1" ]; then

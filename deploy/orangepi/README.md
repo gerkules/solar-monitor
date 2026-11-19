@@ -48,31 +48,63 @@ xz -dc Armbian_*_Orangepi3-lts_bookworm_*.img.xz | sudo dd of=/dev/rdisk4 bs=4m 
 # с мака, если плата уже в сети
 scp ~/solar-monitor/deploy/orangepi/bootstrap.sh root@<ip>:/root/
 ssh root@<ip>
-bash /root/bootstrap.sh --site office --transport serial --auth --random-password
+bash /root/bootstrap.sh --site office --transport hid --auth --random-password
 ```
 
 Варианты транспорта:
 
 | Как подключён инвертор | Аргументы |
 |---|---|
+| Нативный **USB**-порт инвертора (как SolarAssistant) | `--transport hid` |
 | USB-RS232 / RS485 кабель | `--transport serial` |
 | Донгл EW10 / ESP32-шлюз по сети | `--transport tcp --tcp-host <ip> --tcp-port 9999` |
 | Импорт из SolarAssistant | `--transport sa-mqtt --mqtt-host <ip-SA>` |
+
+### Нативный USB (hid) — подробнее
+
+Инвертор с USB-портом (Voltronic/Axpert/Must) отдаёт PI30 через HID без переходника —
+именно так его видит SolarAssistant. Коллектор для этого умеет `TRANSPORT=hid`:
+пишет 8-байтные репорты в `/dev/hidrawN` и читает ответы оттуда же.
+
+Важно: hidraw-номер (`hidraw0`, `hidraw1`, …) после перезагрузки может измениться, поэтому
+`bootstrap.sh --transport hid` ставит udev-правило `99-solar-inverter-hid.rules` со стабильным
+**`/dev/solar-inverter`** и прописывает его в `.env` (`HID_DEVICE=/dev/solar-inverter`).
+Проверка на хосте:
+
+```bash
+lsusb | grep -iE '0665|voltr|axpert|must'      # обычно 0665:5161
+ls -l /dev/solar-inverter                      # → ../hidrawN
+```
+
+Если VID:PID другой — раскомментируй строку в `/etc/udev/rules.d/99-solar-inverter-hid.rules`
+(частые варианты: `0665:5161`, `0001:0000`, `0483:0035`), затем:
+`sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw`.
+
+**Один хозяин порта:** пока инвертор читает SolarAssistant (или mpp-solar), коллектор получит
+пустые ответы — отключи старый софт/выключи ту плату, оставь только Orange Pi.
 
 Скрипт печатает адреса и пароль Grafana. Дальше всё то же, что на VDS:
 UI `http://<ip>:8080/` (Настройки → Подключение → «Проверить связь»), история — в Influx
 (30 дней по умолчанию), дашборд — `Grafana → папка Solar → Solar overview`.
 
-Если нужен Grafana по сети (по умолчанию он слушает только localhost), запускай с оверрайдом:
+Если нужен Grafana по сети (по умолчанию он слушает только localhost), `bootstrap.sh` добавляет
+оверрайд сам; вручную то же самое:
 
 ```bash
 cd /opt/solar-monitor
-docker compose -f docker-compose.yml -f deploy/orangepi/docker-compose.orangepi.yml up -d
+# нативный USB (hid):
+docker compose -f docker-compose.yml \
+  -f deploy/orangepi/docker-compose.orangepi.yml \
+  -f deploy/orangepi/docker-compose.hid.yml up -d
+# RS232:
+docker compose -f docker-compose.yml \
+  -f deploy/orangepi/docker-compose.orangepi.yml \
+  -f deploy/orangepi/docker-compose.serial.yml up -d
 ```
 
-Он же прокидывает USB-кабель в контейнер (`/dev/ttyUSB0` + группа `dialout`) — без правки
-основного `docker-compose.yml`. Если адаптер висит на другом порту, поправь `devices:` в оверрайде
-(стабильное имя: `ls /dev/serial/by-id/`).
+Оверрайды прокидывают устройство в контейнер (`/dev/solar-inverter` или `/dev/ttyUSB0`)
+без правки основного `docker-compose.yml`. Если адаптер висит на другом порту — поправь
+`devices:` в оверрайде (стабильное имя: `ls /dev/serial/by-id/`).
 
 ## 4. Что проверить в первый день
 
@@ -85,6 +117,12 @@ docker compose logs --tail 30 collector  # "poller online", значения к�
 docker stats --no-stream                 # RAM: influx ~400 МБ, grafana ~200, collector ~80
 df -h /                                  # свободное место не тает
 ```
+
+Для нативного USB первым делом смотри лог коллектора: `poller online` vs
+`no valid answer from usb-hid`. Если нет ответа, а SolarAssistant на этом же кабеле работал —
+проверь, что старая плата/софт отключены (порт у инвертора один) и что `lsusb` видит `0665:5161`.
+Запасной путь у тебя есть всегда: в инверторе тот же PI30 выходит на **RS232**,
+тогда `TRANSPORT=serial` + кабель USB-RS232 (2400 8N1).
 
 Через сутки: появились ли точки в Grafana (`Solar overview`, период 24 ч), не растёт ли RAM
 (`docker stats`), нет ли `restart` у контейнеров.

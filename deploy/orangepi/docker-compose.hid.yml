@@ -1,0 +1,15 @@
+# Нативный USB-порт инвертора (USB-HID, как в SolarAssistant) → контейнер collector.
+#
+#   docker compose -f docker-compose.yml \
+#                  -f deploy/orangepi/docker-compose.orangepi.yml \
+#                  -f deploy/orangepi/docker-compose.hid.yml up -d
+#
+# Путь /dev/solar-inverter — это udev-симлинк из 99-solar-inverter-hid.rules
+# (устанавливается bootstrap.sh при --transport hid). Он стабилен между
+# перезагрузками, в отличие от /dev/hidraw0, /dev/hidraw1, …
+services:
+  collector:
+    devices:
+      - /dev/solar-inverter:/dev/solar-inverter
+    # В .env должно быть: TRANSPORT=hid и HID_DEVICE=/dev/solar-inverter
+    # Проверка на хосте: lsusb | grep -i 0665 и ls -l /dev/solar-inverter

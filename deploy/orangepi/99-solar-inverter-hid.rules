@@ -1,0 +1,14 @@
+# Стабильное имя hidraw-узла для нативного USB-порта инвертора (Voltronic/Axpert).
+# Без этого /dev/hidraw0 после каждой перезагрузки/переподключения может стать
+# /dev/hidraw1 — и контейнер с жёстко прописанным путём перестанет видеть инвертор.
+#
+#   sudo cp 99-solar-inverter-hid.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   ls -l /dev/solar-inverter          # → ../hidrawN
+#
+# Если у инвертора другие VID:PID (смотри `lsusb`) — поправь значения ниже.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="solar-inverter"
+# Частые варианты у Voltronic/Must/Axpert: 0665:5161, 0001:0000, 0483:0035.
+# Раскомментируй нужную строку, если lsusb показывает другое.
+#SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0001", ATTRS{idProduct}=="0000", SYMLINK+="solar-inverter"
+#SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="0035", SYMLINK+="solar-inverter"
