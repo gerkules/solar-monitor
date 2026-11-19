@@ -31,6 +31,19 @@ python3 -m venv "$DST/venv"
     "pydantic<2" "fastapi>=0.100" "uvicorn>=0.27" "paho-mqtt>=2.0,<3" "pyserial>=3.5,<4"
 
 cp "$SRC/deploy/pi/solar-collector.service" /etc/systemd/system/
+
+# Wi-Fi helper: единственная привилегированная точка (scan/connect/forget).
+# Коллектор работает под solar и не может менять сеть через polkit, поэтому —
+# узкий helper + NOPASSWD только на него.
+install -d -m 755 /usr/local/lib/solar-monitor
+install -m 755 "$SRC/deploy/pi/wifi-helper" /usr/local/lib/solar-monitor/wifi-helper
+printf 'solar ALL=(root) NOPASSWD: /usr/local/lib/solar-monitor/wifi-helper\n' \
+    > /etc/sudoers.d/solar-wifi
+chmod 440 /etc/sudoers.d/solar-wifi
+visudo -cf /etc/sudoers.d/solar-wifi >/dev/null || {
+    echo "ОШИБКА: /etc/sudoers.d/solar-wifi не прошёл проверку"; rm -f /etc/sudoers.d/solar-wifi; exit 1;
+}
+
 chown -R solar:solar "$DST" /data
 systemctl daemon-reload
 systemctl enable --now solar-collector
@@ -41,3 +54,4 @@ systemctl is-active solar-collector \
 echo
 echo "USB-RS232: адаптер появится как /dev/ttyUSB0 (драйверы ch341/pl2303/ftdi/cp210x уже в ядре)."
 echo "Проверка: ls -l /dev/serial/by-id/ ; затем в UI «Подключение» -> «Проверить связь»."
+echo "Wi-Fi: страница «Wi-Fi» в UI (helper: /usr/local/lib/solar-monitor/wifi-helper)."

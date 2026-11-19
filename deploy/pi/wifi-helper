@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""solar-monitor Wi-Fi helper — единственная привилегированная точка настройки Wi-Fi.
+
+Устанавливается в /usr/local/lib/solar-monitor/wifi-helper и вызывается
+сервисом solar через sudoers-nopasswd (только этот файл).
+
+Команды (все печатают JSON в stdout):
+  scan                     список видимых сетей (форсированный rescan)
+  status                   текущее состояние Wi-Fi + умеет ли адаптер AP
+  connect <ssid> <psk>     подключиться; при неудаче — автоматический откат
+  forget <ssid|profile>    удалить профиль solar-wifi-*
+  ap-check                 поддержка режима точки доступа (для comitup)
+
+Почему отдельный файл: коллектор работает под пользователем solar и не имеет
+прав менять сеть (polkit: wifi.scan и settings.modify требуют auth_admin).
+Давать сервису root целиком нельзя — здесь только три узкие операции.
+"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+import time
+
+NMCLI = "/usr/bin/nmcli"
+PROFILE_PREFIX = "solar-wifi"
+CONNECT_WAIT_S = 45          # сколько ждём IPv4 после nmcli con up
+KEEP_PROFILES = 5            # столько профилей solar-wifi-* храним максимум
+
+
+def emit(payload: dict, code: int = 0) -> None:
+    print(json.dumps(payload, ensure_ascii=False))
+    sys.exit(code)
+
+
+def nm(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+    return subprocess.run([NMCLI, *args], capture_output=True, text=True,
+                          timeout=timeout, check=False)
+
+
+def split_terse(line: str) -> list[str]:
+    """nmcli -t экранирует ':' как '\\:' — режем только по неэкранированным."""
+    fields, buf, esc = [], [], False
+    for ch in line:
+        if esc:
+            buf.append(ch)
+            esc = False
+        elif ch == "\\":
+            esc = True
+        elif ch == ":":
+            fields.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    fields.append("".join(buf))
+    return fields
+
+
+def clean_ssid(ssid: str) -> bool:
+    if not ssid or len(ssid) > 32:
+        return False
+    return not re.search(r"[\x00-\x1f\x7f]", ssid)
+
+
+def clean_psk(psk: str) -> bool:
+    """WPA2-PSK: 8..63 символа, либо 64 hex, либо пусто (открытая сеть)."""
+    if psk == "":
+        return True
+    if 8 <= len(psk) <= 63:
+        return True
+    return bool(re.fullmatch(r"[0-9a-fA-F]{64}", psk))
+
+
+def wifi_device() -> str | None:
+    """Первое Wi-Fi устройство (обычно wlan0 / wlx...)."""
+    r = nm("-t", "-f", "DEVICE,TYPE", "device", "status")
+    for line in r.stdout.splitlines():
+        dev, _, typ = line.partition(":")
+        if typ.strip() == "wifi":
+            return dev.strip()
+    return None
+
+
+def dev_field(dev: str, field: str) -> str:
+    """Значение поля из `nmcli device show`. Индексированные имена (IP4.ADDRESS[1])
+    nmcli не принимает в -f, поэтому запрашиваем базовое имя и берём [1]."""
+    base = field.split("[")[0]
+    r = nm("-t", "-f", base, "device", "show", dev)
+    for line in r.stdout.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == field:
+            return value.strip()
+    return ""
+
+
+def ap_capable(dev: str) -> bool:
+    r = nm("-f", "WIFI-PROPERTIES.AP", "device", "show", dev)
+    return bool(re.search(r"WIFI-PROPERTIES\.AP:\s*yes", r.stdout))
+
+
+def profiles() -> list[str]:
+    r = nm("-t", "-f", "NAME", "connection", "show")
+    return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def solar_profiles() -> list[str]:
+    return [p for p in profiles() if p.startswith(PROFILE_PREFIX)]
+
+
+def active_profile() -> str:
+    dev = wifi_device()
+    return dev_field(dev, "GENERAL.CONNECTION") if dev else ""
+
+
+def has_ipv4(dev: str) -> str:
+    return dev_field(dev, "IP4.ADDRESS[1]")
+
+
+def cmd_scan() -> None:
+    dev = wifi_device()
+    if not dev:
+        emit({"ok": False, "error": "Wi-Fi адаптер не найден"}, 1)
+    nm("device", "wifi", "rescan", timeout=30)
+    time.sleep(2)                      # rescan асинхронный, даём ему завершиться
+    r = nm("-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list")
+    nets, seen = [], set()
+    for line in r.stdout.splitlines():
+        parts = split_terse(line)
+        if len(parts) < 4:
+            continue
+        in_use, ssid, signal, security = parts[0], parts[1], parts[2], parts[3]
+        if not ssid or ssid in seen:          # дубликаты (один SSID на канал)
+            continue
+        seen.add(ssid)
+        nets.append({
+            "ssid": ssid,
+            "signal": int(signal) if signal.isdigit() else 0,
+            "security": security or "",
+            "open": not security,
+            "active": in_use.strip() == "*",
+        })
+    nets.sort(key=lambda n: (-n["active"], -n["signal"]))
+    emit({"ok": True, "device": dev, "ap_capable": ap_capable(dev), "networks": nets})
+
+
+def cmd_status() -> None:
+    dev = wifi_device()
+    if not dev:
+        emit({"ok": True, "device": None, "connected": False,
+              "ap_capable": False, "networks_known": solar_profiles()})
+    ip = has_ipv4(dev)
+    emit({
+        "ok": True,
+        "device": dev,
+        "connected": bool(ip),
+        "ssid": dev_field(dev, "GENERAL.CONNECTION"),
+        "state": dev_field(dev, "GENERAL.STATE"),
+        "ip4": ip,
+        "gateway": dev_field(dev, "IP4.GATEWAY"),
+        "ap_capable": ap_capable(dev),
+        "networks_known": solar_profiles(),
+    })
+
+
+def nm_error(text: str) -> str:
+    """nmcli часто заканчивает вывод подсказкой про journalctl — берём смысл."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    for ln in lines:
+        if ln.lower().startswith(("error", "ошибка")):
+            return ln
+    for ln in lines:
+        if not ln.lower().startswith("hint:"):
+            return ln
+    return lines[-1] if lines else "неизвестная ошибка nmcli"
+
+
+def profile_for(ssid: str) -> str:
+    return f"{PROFILE_PREFIX}-{ssid}"
+
+
+def cmd_connect(ssid: str, psk: str) -> None:
+    if not clean_ssid(ssid):
+        emit({"ok": False, "error": "Некорректный SSID (1..32 символа, без управляющих)"}, 2)
+    if not clean_psk(psk):
+        emit({"ok": False, "error": "Пароль WPA2: 8..63 символа или 64 hex"}, 2)
+
+    dev = wifi_device()
+    if not dev:
+        emit({"ok": False, "error": "Wi-Fi адаптер не найден"}, 1)
+
+    previous = active_profile()
+    name = profile_for(ssid)
+    existed = name in profiles()
+
+    # создаём/обновляем профиль
+    if not existed:
+        nm("connection", "add", "type", "wifi", "con-name", name,
+           "ifname", dev, "ssid", ssid)
+    nm("connection", "modify", name, "connection.autoconnect", "yes")
+    if psk:
+        nm("connection", "modify", name,
+           "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", psk)
+    else:
+        nm("connection", "modify", name, "wifi-sec.key-mgmt", "", "remove", "wifi-sec.psk")
+
+    up = nm("connection", "up", name, timeout=CONNECT_WAIT_S + 15)
+    if up.returncode != 0:
+        if not existed:
+            nm("connection", "delete", name)
+        emit({"ok": False, "error": nm_error(up.stderr or up.stdout),
+              "previous": previous}, 3)
+
+    # ждём IPv4 — «подключено, но без адреса» нам не годится
+    deadline = time.time() + CONNECT_WAIT_S
+    ip = ""
+    while time.time() < deadline:
+        ip = has_ipv4(dev)
+        if ip:
+            break
+        time.sleep(2)
+
+    if not ip:
+        # откат: вернуть прежнюю сеть и убрать мусорный профиль
+        if not existed:
+            nm("connection", "delete", name)
+        if previous and previous != name:
+            nm("connection", "up", previous, timeout=CONNECT_WAIT_S + 15)
+        emit({"ok": False, "rolled_back": True, "previous": previous,
+              "error": f"нет IPv4 за {CONNECT_WAIT_S} с — вернул прежнее подключение"}, 4)
+
+    # подчистим старые профили, чтобы не копились
+    keep = [p for p in solar_profiles() if p != name][KEEP_PROFILES - 1:]
+    for old in keep:
+        nm("connection", "delete", old)
+
+    emit({"ok": True, "ssid": ssid, "ip4": ip,
+          "gateway": dev_field(dev, "IP4.GATEWAY"),
+          "previous": previous})
+
+
+def cmd_forget(target: str) -> None:
+    names = [p for p in solar_profiles() if p == target or p == profile_for(target)]
+    if not names:
+        emit({"ok": False, "error": "профиль не найден (управляем только solar-wifi-*)"}, 1)
+    for n in names:
+        nm("connection", "delete", n)
+    emit({"ok": True, "removed": names})
+
+
+def cmd_ap_check() -> None:
+    dev = wifi_device()
+    if not dev:
+        emit({"ok": True, "ap_capable": False, "device": None,
+              "hint": "Wi-Fi адаптер не найден"})
+    ok = ap_capable(dev)
+    emit({"ok": True, "ap_capable": ok, "device": dev,
+          "hint": "адаптер умеет AP — можно ставить comitup" if ok
+          else "адаптер не умеет AP: captive portal невозможен, "
+               "используйте USB-модем телефона, HDMI+nmtui или кабель"})
+
+
+def main(argv: list[str]) -> None:
+    if len(argv) < 2:
+        emit({"ok": False, "error": "usage: wifi-helper scan|status|connect|forget|ap-check"}, 2)
+    cmd = argv[1]
+    if cmd == "scan":
+        cmd_scan()
+    elif cmd == "status":
+        cmd_status()
+    elif cmd == "connect":
+        if len(argv) < 3:
+            emit({"ok": False, "error": "usage: connect <ssid> <psk>"}, 2)
+        cmd_connect(argv[2], argv[3] if len(argv) > 3 else "")
+    elif cmd == "forget":
+        if len(argv) < 3:
+            emit({"ok": False, "error": "usage: forget <ssid|profile>"}, 2)
+        cmd_forget(argv[2])
+    elif cmd == "ap-check":
+        cmd_ap_check()
+    else:
+        emit({"ok": False, "error": f"unknown command {cmd!r}"}, 2)
+
+
+if __name__ == "__main__":
+    main(sys.argv)

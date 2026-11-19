@@ -167,6 +167,7 @@
       <a href="#/inverter" data-view="inverter" data-i18n="sub.inverter">Инвертор</a>
       <a href="#/battery" data-view="battery" data-i18n="sub.battery">АКБ</a>
       <a href="#/connection" data-view="connection" data-i18n="sub.connection">Подключение</a>
+      <a href="#/wifi" data-view="wifi" data-i18n="sub.wifi">Wi-Fi</a>
       <a href="#/automation" data-view="automation" data-i18n="sub.automation">Автоматизация</a>
       <a href="#/codes" data-view="codes" data-i18n="sub.codes">Коды</a>
       <a href="#/settings" data-view="settings" data-i18n="sub.setpoints">Уставки</a>
@@ -481,6 +482,36 @@
           <span class="msg" id="conn-msg"></span>
         </div>
         <p class="muted" id="conn-hint" style="margin-top:8px"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= WI-FI ======================= -->
+  <section class="view" id="view-wifi">
+    <div class="card">
+      <h3 data-i18n="wifi.title">Wi-Fi</h3>
+      <div class="body">
+        <div class="statuses" id="wifi-status"></div>
+        <div id="wifi-notice" class="muted" style="display:none; margin-top:10px"></div>
+        <div class="form-actions" style="margin-top:12px">
+          <button class="pill" id="wifi-scan" data-i18n="wifi.scan">Найти сети</button>
+          <span class="msg" id="wifi-msg"></span>
+        </div>
+        <div id="wifi-warn" class="muted" style="display:none; margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="card" id="wifi-list-card" style="display:none">
+      <h3 data-i18n="wifi.networks">Доступные сети</h3>
+      <div class="body">
+        <table class="metrics">
+          <thead><tr>
+            <th data-i18n="wifi.ssid">Сеть</th>
+            <th data-i18n="wifi.signal">Сигнал</th>
+            <th data-i18n="wifi.security">Защита</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="wifi-rows"></tbody>
+        </table>
       </div>
     </div>
   </section>

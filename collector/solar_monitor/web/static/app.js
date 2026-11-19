@@ -654,6 +654,146 @@ async function pollAfterRestart(tries = 0) {
   }
 }
 
+/* ---------------------------------------------------------------- wi-fi */
+/* Настройка Wi-Fi хост-машины (не инвертора). Всё привилегированное — в
+   /usr/local/lib/solar-monitor/wifi-helper через sudo NOPASSWD; здесь только UI. */
+let WIFI = { status: null, nets: [] };
+
+function wifiSignalBars(sig) {
+  const n = sig >= 75 ? 4 : sig >= 50 ? 3 : sig >= 25 ? 2 : 1;
+  return '▁▃▅▇'.slice(0, n) + '▁▃▅▇'.slice(n).replace(/[▁▃▅▇]/g, '·');
+}
+
+function renderWifiStatus(st) {
+  const box = $('wifi-status');
+  if (!box) return;
+  box.innerHTML = [
+    status('bolt', t('wifi.adapter'), esc(st.device || '—'), ''),
+    status('clock', t('wifi.state'), st.connected ? t('wifi.connected') : t('wifi.disconnected'), '',
+      st.connected ? 'green' : 'red'),
+    status('bolt', t('wifi.ssid'), esc(st.ssid || '—'), ''),
+    status('bolt', t('wifi.ip'), esc(st.ip4 || '—'), ''),
+  ].join('');
+  const warn = $('wifi-warn');
+  if (warn) {
+    const notes = [];
+    if (!st.ap_capable) notes.push(t('wifi.no_ap_hint'));
+    notes.push(t('wifi.rollback_hint'));
+    warn.style.display = '';
+    warn.innerHTML = notes.map((n) => '• ' + esc(n)).join('<br>');
+  }
+}
+
+function renderWifiList() {
+  const tb = $('wifi-rows');
+  const card = $('wifi-list-card');
+  if (!tb || !card) return;
+  card.style.display = WIFI.nets.length ? '' : 'none';
+  const known = new Set((WIFI.status && WIFI.status.networks_known) || []);
+  tb.innerHTML = WIFI.nets.map((n, i) => {
+    const canForget = known.has('solar-wifi-' + n.ssid);
+    return `<tr data-row="${i}">
+      <td><b>${esc(n.ssid)}</b>${n.active ? ' <span class="pill-label green">' + esc(t('wifi.active')) + '</span>' : ''}</td>
+      <td>${wifiSignalBars(n.signal)} ${n.signal}%</td>
+      <td>${n.open ? '🔓 ' + esc(t('wifi.open')) : '🔒 ' + esc(n.security)}</td>
+      <td class="right" style="white-space:nowrap">
+        <button class="pill" data-act="connect" data-i="${i}">${esc(t('wifi.connect'))}</button>
+        ${canForget ? `<button class="pill" data-act="forget" data-i="${i}">${esc(t('wifi.forget'))}</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadWifi() {
+  const msg = $('wifi-msg');
+  const notice = $('wifi-notice');
+  try {
+    const r = await fetch(api('/api/v1/wifi'));
+    const st = await r.json();
+    if (!r.ok || st.ok === false) throw new Error(st.error || ('HTTP ' + r.status));
+    if (st.unavailable) {
+      if (notice) { notice.style.display = ''; notice.textContent = t('wifi.unavailable'); }
+      if ($('wifi-list-card')) $('wifi-list-card').style.display = 'none';
+      if (msg) { msg.className = 'msg err'; msg.textContent = '✗ ' + (st.error || ''); }
+      return;
+    }
+    WIFI.status = st;
+    if (notice) notice.style.display = 'none';
+    if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+    renderWifiStatus(st);
+    await scanWifi();
+  } catch (e) {
+    if (msg) { msg.className = 'msg err'; msg.textContent = '✗ ' + e; }
+  }
+}
+
+async function scanWifi() {
+  const msg = $('wifi-msg');
+  if (msg) { msg.className = 'msg'; msg.textContent = t('wifi.scanning'); }
+  const r = await fetch(api('/api/v1/wifi/scan'));
+  const d = await r.json();
+  if (!d.ok) {
+    if (msg) { msg.className = 'msg err'; msg.textContent = '✗ ' + (d.error || 'scan failed'); }
+    return;
+  }
+  if (WIFI.status && WIFI.status.ap_capable !== d.ap_capable) {
+    WIFI.status.ap_capable = d.ap_capable;
+    renderWifiStatus(WIFI.status);
+  }
+  WIFI.nets = d.networks || [];
+  if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+  renderWifiList();
+}
+
+async function wifiConnect(ssid, psk) {
+  const msg = $('wifi-msg');
+  if (msg) { msg.className = 'msg'; msg.textContent = t('wifi.connecting', { ssid }); }
+  const r = await fetch(api('/api/v1/wifi/connect'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ssid, psk }),
+  });
+  const d = await r.json();
+  if (msg) {
+    if (d.ok) {
+      msg.className = 'msg ok';
+      msg.textContent = t('wifi.done', { ssid, ip: d.ip4 || '—' });
+    } else {
+      msg.className = 'msg err';
+      msg.textContent = '✗ ' + (d.error || 'failed')
+        + (d.rolled_back ? ' ' + t('wifi.rolled_back') : '');
+    }
+  }
+  await loadWifi();
+}
+
+async function wifiForget(ssid) {
+  if (!window.confirm(t('wifi.forget_confirm', { ssid }))) return;
+  const msg = $('wifi-msg');
+  const r = await fetch(api('/api/v1/wifi/forget'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ssid }),
+  });
+  const d = await r.json();
+  if (msg) {
+    msg.className = 'msg ' + (d.ok ? 'ok' : 'err');
+    msg.textContent = d.ok ? t('wifi.forgotten', { ssid }) : '✗ ' + (d.error || 'failed');
+  }
+  await loadWifi();
+}
+
+/* Инлайн-ввод пароля: строка сети превращается в поле + OK/Отмена */
+function wifiAskPassword(i, tr) {
+  const net = WIFI.nets[i];
+  if (!net) return;
+  const cell = tr.lastElementChild;
+  cell.innerHTML = '<input type="password" class="wifi-psk" placeholder="' + esc(t('wifi.password'))
+    + '" autocomplete="current-password" style="width:150px"> '
+    + '<button class="pill" data-act="go" data-i="' + i + '">OK</button> '
+    + '<button class="pill" data-act="cancel">✕</button>';
+  const inp = cell.querySelector('input');
+  if (inp) inp.focus();
+}
+
 async function loadBmsEvents() {
   let d;
   try { d = await (await fetch(api('/api/v1/battery/events?limit=30&hours=24'))).json(); }
@@ -1423,7 +1563,7 @@ function renderRuleForm(meta, settings) {
 }
 
 /* ---------------------------------------------------------------- routing */
-const CONFIG_VIEWS = ['inverter', 'battery', 'connection', 'automation', 'codes', 'settings'];
+const CONFIG_VIEWS = ['inverter', 'battery', 'connection', 'wifi', 'automation', 'codes', 'settings'];
 
 function show(v) {
   view = v;
@@ -1445,6 +1585,7 @@ function show(v) {
   if (v === 'automation') loadAutomation();
   if (v === 'codes') loadCodes();
   if (v === 'connection') loadConnection();
+  if (v === 'wifi') loadWifi();
 }
 
 function route() {
@@ -1612,6 +1753,29 @@ async function boot() {
   $('codes-filter').addEventListener('input', loadCodes);
   $('conn-mode').addEventListener('change', syncConnFields);
   $('conn-probe').addEventListener('click', probeConnection);
+  if ($('wifi-scan')) $('wifi-scan').addEventListener('click', scanWifi);
+  if ($('wifi-rows')) {
+    $('wifi-rows').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-act]');
+      if (!btn) return;
+      const act = btn.dataset.act;
+      const i = Number(btn.dataset.i);
+      const tr = btn.closest('tr');
+      const net = WIFI.nets[i];
+      if (act === 'connect' && net) {
+        // открытая сеть — без пароля; иначе спрашиваем пароль в строке
+        if (net.open) wifiConnect(net.ssid, '');
+        else wifiAskPassword(i, tr);
+      } else if (act === 'go' && net) {
+        const inp = tr.querySelector('input.wifi-psk');
+        wifiConnect(net.ssid, inp ? inp.value : '');
+      } else if (act === 'cancel') {
+        renderWifiList();
+      } else if (act === 'forget' && net) {
+        wifiForget(net.ssid);
+      }
+    });
+  }
   $('conn-apply').addEventListener('click', applyConnection);
   $('bms-config-toggle').addEventListener('click', loadBmsConfig);
   $('bms-apply').addEventListener('click', () => applyBms());

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from typing import Optional
 
@@ -593,6 +594,61 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
             return JSONResponse({"error": "неизвестный режим"}, status_code=400)
         broker = getattr(poller, "mq", None)
         return conn_mod.probe(body, broker=broker)
+
+    # ---- Wi-Fi (хост-сеть, не инвертор) ------------------------------------
+    # Настоящая настройка требует root (polkit: wifi.scan и settings.modify —
+    # auth_admin). Поэтому ходим в узкий helper через sudo NOPASSWD,
+    # см. deploy/pi/wifi-helper и /etc/sudoers.d/solar-wifi.
+    def _wifi_helper(*args: str, timeout: int = 30) -> dict:
+        path = os.getenv("WIFI_HELPER", "/usr/local/lib/solar-monitor/wifi-helper")
+        if not os.path.exists(path):
+            return {"ok": False, "unavailable": True,
+                    "error": "wifi helper не установлен (см. deploy/pi/install-pi.sh)"}
+        try:
+            proc = subprocess.run(["sudo", "-n", path, *args],
+                                  capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": f"helper не ответил за {timeout} с"}
+        raw = (proc.stdout or "").strip()
+        try:
+            return json.loads(raw) if raw else {
+                "ok": False, "error": (proc.stderr or "пустой ответ").strip()}
+        except json.JSONDecodeError:
+            return {"ok": False, "error": (proc.stderr or raw or "не JSON").strip()}
+
+    @app.get("/api/v1/wifi")
+    def wifi_status(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return _wifi_helper("status")
+
+    @app.get("/api/v1/wifi/scan")
+    def wifi_scan(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return _wifi_helper("scan", timeout=45)
+
+    @app.post("/api/v1/wifi/connect")
+    async def wifi_connect(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.json()
+        ssid = str(body.get("ssid") or "")
+        psk = str(body.get("psk") or "")
+        if not ssid:
+            return JSONResponse({"ok": False, "error": "не указан SSID"}, status_code=400)
+        # helper сам откатывается на прежнюю сеть, если IPv4 не появился
+        return _wifi_helper("connect", ssid, psk, timeout=120)
+
+    @app.post("/api/v1/wifi/forget")
+    async def wifi_forget(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.json()
+        target = str(body.get("ssid") or "")
+        if not target:
+            return JSONResponse({"ok": False, "error": "не указан SSID"}, status_code=400)
+        return _wifi_helper("forget", target)
 
     @app.get("/api/v1/battery/protocol")
     def protocol_status():
