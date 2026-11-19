@@ -227,6 +227,11 @@ main.container { padding: 12px 0 28px; }
 .flow .wire.batt-on { stroke: var(--green); }
 .flow .wire.load-on { stroke: var(--red); }
 @keyframes dash { to { stroke-dashoffset: -26; } }
+/* нет свежих данных: схема гаснет и не «течёт» — видно, что связь потеряна */
+.flow.stale .wire { animation: none !important; opacity: .25; }
+.flow.stale .wire.on { animation: none !important; }
+.flow.stale .lbl, .flow.stale .cap { opacity: .45; }
+.header .status .dot.off { background: var(--red); box-shadow: 0 0 0 2px rgba(255,255,255,.55), 0 0 8px var(--red); }
 
 /* ---------------- tables ---------------- */
 table.metrics { width: 100%; border-collapse: collapse; }

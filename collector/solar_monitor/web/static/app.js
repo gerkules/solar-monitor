@@ -16,6 +16,21 @@ function api(p) {
 let META = { metrics: {}, info: {}, settings: {} };
 let currentSite = localStorage.getItem('solar.site') || new URLSearchParams(location.search).get('site') || '';
 let STATE = {};
+
+/* Живость данных: опрос идёт раз в POLL_INTERVAL (обычно 5–10 с), но если связи
+   с инвертором нет, state перестаёт обновляться и внешне выглядит «живым»:
+   анимация потока продолжается, точка в шапке зелёная. Считаем данные
+   устаревшими, если last_update старше STALE_AFTER_S секунд. */
+const STALE_AFTER_S = 30;
+
+function dataAge() {
+  return STATE.last_update ? Math.max(0, Math.round(Date.now() / 1000 - STATE.last_update)) : null;
+}
+
+function isStale() {
+  const age = dataAge();
+  return age === null || age > STALE_AFTER_S;
+}
 let view = 'overview';
 let energyRange = localStorage.getItem('solar.energyRange') || '7d';
 
@@ -170,16 +185,20 @@ function renderBatteryIcon() {
 }
 
 function renderFlow() {
+  const stale = isStale();
   const pv = STATE.pv_power || 0, load = STATE.load_power || 0;
   const grid = STATE.grid_power || 0, batt = STATE.battery_power || 0;
 
-  setKey('v-pv', power(pv));
-  setKey('v-grid', power(grid));
-  setKey('v-load', power(load));
-  setKey('v-batt', power(Math.abs(batt)));
+  // нет свежих данных — не показываем движение энергии (иначе кажется, что всё работает)
+  document.querySelectorAll('.flow').forEach((el) => el.classList.toggle('stale', stale));
+
+  setKey('v-pv', stale ? '—' : power(pv));
+  setKey('v-grid', stale ? '—' : power(grid));
+  setKey('v-load', stale ? '—' : power(load));
+  setKey('v-batt', stale ? '—' : power(Math.abs(batt)));
   const amps = Math.abs(Number(STATE.battery_current) || 0);
   const battState = batt < -20 ? t('batt.discharge') : batt > 20 ? t('batt.charge') : t('batt.idle');
-  setKey('v-batt-cap', batt === 0 && !amps ? '—'
+  setKey('v-batt-cap', stale ? '—' : batt === 0 && !amps ? '—'
     : `${battState} · ${fmt(amps, 1)} ${t('unit.A')}`);
   renderBatteryIcon();
   // в узле инвертора — режим работы (SOC живёт в узле АКБ и в gauge)
@@ -193,10 +212,10 @@ function renderFlow() {
       if (on) el.classList.add(cls + '-on');
     });
   };
-  wire('pv', pv > 20, 'pv');
-  wire('load', load > 20, 'load');
-  wire('grid', Math.abs(grid) > 20, 'grid');
-  wire('batt', Math.abs(batt) > 20, 'batt');
+  wire('pv', !stale && pv > 20, 'pv');
+  wire('load', !stale && load > 20, 'load');
+  wire('grid', !stale && Math.abs(grid) > 20, 'grid');
+  wire('batt', !stale && Math.abs(batt) > 20, 'batt');
   // разряд = поток ИЗ АКБ в инвертор: анимация в обратную сторону
   document.querySelectorAll('[data-wire="batt"]').forEach((el) => {
     el.classList.toggle('reverse', batt < -20);
@@ -696,6 +715,17 @@ function bmsAlertHtml() {
 function renderHeaderAlert() {
   const badge = $('header-alert');
   if (!badge) return;
+  // потеря связи важнее любых предупреждений АКБ
+  if (isStale()) {
+    const age = dataAge();
+    badge.style.display = '';
+    badge.className = 'alert-badge';
+    badge.textContent = '⚠ ' + t('conn.stale');
+    badge.title = age === null ? t('conn.stale_hint_none')
+      : t('conn.stale_hint', { age });
+    badge.onclick = () => { location.hash = '#/connection'; };
+    return;
+  }
   const alert = bmsAlertHtml();
   badge.style.display = alert ? '' : 'none';
   if (alert) {
@@ -1424,10 +1454,13 @@ function route() {
 
 /* ---------------------------------------------------------------- state */
 function render() {
-  $('dot').classList.toggle('on', !!STATE.last_update);
+  const stale = isStale();
+  const age = dataAge();
+  $('dot').classList.toggle('on', !stale);
   $('mode').textContent = STATE.device_mode || '—';
-  const age = STATE.last_update ? Math.max(0, Math.round(Date.now() / 1000 - STATE.last_update)) : null;
-  $('age').textContent = age === null ? '' : age + ' с';
+  $('age').textContent = age === null ? ''
+    : (stale ? t('conn.stale_age', { age }) : age + ' ' + t('unit.s'));
+  document.body.classList.toggle('stale', stale);
 
   renderOverview();
   if (!AUTH_INFO || !AUTH_INFO.default_password) renderAuthAlert();
@@ -1654,7 +1687,7 @@ async function boot() {
     setInterval(diagLoop, 300);
   }
   window.addEventListener('resize', relayoutCharts);
-  setInterval(() => { if (STATE.last_update) render(); }, 1000);
+  setInterval(() => { try { render(); } catch (e) { /* state ещё пуст */ } }, 1000);
 }
 
 boot();
