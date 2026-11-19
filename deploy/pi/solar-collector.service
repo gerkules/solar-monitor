@@ -1,0 +1,23 @@
+[Unit]
+Description=Solar Monitor Collector (native, no Docker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=solar
+Group=solar
+# доступ к /dev/ttyUSB* (USB-RS232/RS485) — без этого serial-транспорт получит
+# Permission denied и UI покажет «нет связи» при живом кабеле
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/solar-monitor/collector
+EnvironmentFile=/opt/solar-monitor/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/solar-monitor/venv/bin/python -m solar_monitor.main
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
