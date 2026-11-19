@@ -7,6 +7,7 @@ Serves the SPA from web/static and keeps the JSON API that api.py exposed
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import time
@@ -18,6 +19,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import api, config, publishers
 from .pi30 import INFO_METRICS, METRICS, SETTINGS
+
+log = logging.getLogger("webapp")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "web", "static")
 # Версия статики: меняется при каждом старте контейнера, чтобы браузер не держал
@@ -139,8 +142,12 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
                battery=None, connection_store=None, auth_store=None) -> FastAPI:
     app = FastAPI(title="solar-monitor", docs_url="/api/docs", redoc_url=None,
                   openapi_url="/api/openapi.json")
-    auth_on = bool((config.AUTH_USER and config.AUTH_PASSWORD)
-                   or (auth_store is not None and auth_store.info()["source"] == "file"))
+    # Авторизация может включиться в рантайме (bootstrap из UI), поэтому состояние
+    # проверяется на каждом запросе, а не фиксируется при старте приложения.
+    def auth_enabled() -> bool:
+        if config.AUTH_USER and config.AUTH_PASSWORD:
+            return True
+        return auth_store is not None and auth_store.enabled
 
     @app.middleware("http")
     async def peer_proxy(request: Request, call_next):
@@ -195,7 +202,7 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
         """Optional HTTP Basic auth for UI + API (except /healthz for docker)."""
-        if not auth_on or request.url.path == "/healthz":
+        if not auth_enabled() or request.url.path == "/healthz":
             return await call_next(request)
         header = request.headers.get("Authorization", "")
         if header.startswith("Bearer "):
@@ -512,6 +519,29 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
         info["default_credentials"] = {"user": auth_mod.DEFAULT_USER,
                                        "password": auth_mod.DEFAULT_PASSWORD}
         return info
+
+    @app.post("/api/v1/auth/bootstrap")
+    async def auth_bootstrap(request: Request):
+        """Первое включение защиты, когда авторизация ещё выключена.
+
+        Доступен без логина — иначе включить было бы нечем. После успеха
+        middleware сразу начинает требовать Basic (проверка динамическая).
+        """
+        if auth_store is None:
+            return JSONResponse({"error": "auth store недоступен"}, status_code=501)
+        if auth_enabled():
+            return JSONResponse({"ok": False,
+                                 "error": "авторизация уже включена — используйте смену пароля"},
+                                status_code=409)
+        body = await request.json()
+        try:
+            auth_store.bootstrap(body.get("user") or "", body.get("password") or "")
+        except ValueError as ex:
+            return JSONResponse({"ok": False, "error": str(ex)}, status_code=400)
+        info = auth_store.info()
+        log.warning("ui auth enabled via bootstrap (user=%s)", info.get("user"))
+        return {"ok": True, "message": "Защита включена", "user": info["user"],
+                "source": info["source"], "reload": True}
 
     @app.post("/api/v1/auth/password")
     async def auth_change(request: Request):

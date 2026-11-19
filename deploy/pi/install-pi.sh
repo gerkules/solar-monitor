@@ -32,6 +32,13 @@ python3 -m venv "$DST/venv"
 
 cp "$SRC/deploy/pi/solar-collector.service" /etc/systemd/system/
 
+# Аутентификация UI включена с установки (заводские admin/admin): Pi не должен
+# стартовать с открытой панелью. Пароль меняется в UI -> /data/auth.json.
+if ! grep -q '^AUTH_USER=' "$DST/.env" 2>/dev/null; then
+    printf 'AUTH_USER=admin\nAUTH_PASSWORD=admin\n' >> "$DST/.env"
+    echo "      auth: включена, заводские admin/admin (сменить в UI)"
+fi
+
 # Wi-Fi helper: единственная привилегированная точка (scan/connect/forget).
 # Коллектор работает под solar и не может менять сеть через polkit, поэтому —
 # узкий helper + NOPASSWD только на него.

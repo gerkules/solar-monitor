@@ -459,3 +459,70 @@ class HeadlessModeTest(unittest.TestCase):
                              env={"WEBAPP": "false", "PATH": "/usr/bin:/bin",
                                   "PYTHONPATH": "."}, cwd=".")
         self.assertIn("ok", res.stdout, res.stderr)
+
+
+class TestAuthBootstrap(unittest.TestCase):
+    """Первое включение защиты из UI: панель не должна оставаться открытой."""
+
+    def setUp(self):
+        import tempfile
+        from solar_monitor import auth, config, webapp
+        from solar_monitor import poller as poller_mod
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self._auth = (config.AUTH_USER, config.AUTH_PASSWORD)
+        config.AUTH_USER, config.AUTH_PASSWORD = "", ""      # авторизация выключена
+
+        p = poller_mod.Poller(FakeTransport(), FakeMqtt(), FakeInflux())
+        p.energy.path = os.path.join(self.tmp.name, "energy.json")
+        p.bms_events.path = os.path.join(self.tmp.name, "events.json")
+        p.cycle()
+
+        self.store = auth.AuthStore(os.path.join(self.tmp.name, "auth.json"))
+        self.client = TestClient(webapp.create_app(p, auth_store=self.store))
+
+    def tearDown(self):
+        from solar_monitor import config
+        config.AUTH_USER, config.AUTH_PASSWORD = self._auth
+        self.tmp.cleanup()
+
+    def test_bootstrap_turns_auth_on_without_restart(self):
+        # до bootstrap панель открыта
+        self.assertEqual(self.client.get("/api/v1/auth").status_code, 200)
+        self.assertFalse(self.client.get("/api/v1/auth").json()["enabled"])
+
+        r = self.client.post("/api/v1/auth/bootstrap",
+                             json={"user": "admin", "password": "secret123"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["ok"])
+
+        # middleware стал требовать Basic сразу — без перезапуска приложения
+        self.assertEqual(self.client.get("/api/v1/auth").status_code, 401)
+        ok = self.client.get("/api/v1/auth", auth=("admin", "secret123"))
+        self.assertEqual(ok.status_code, 200)
+        self.assertTrue(ok.json()["enabled"])
+        self.assertEqual(ok.json()["source"], "file")
+
+    def test_bootstrap_rejected_when_auth_already_on(self):
+        self.client.post("/api/v1/auth/bootstrap",
+                         json={"user": "admin", "password": "secret123"})
+        r = self.client.post("/api/v1/auth/bootstrap", auth=("admin", "secret123"),
+                             json={"user": "other", "password": "another123"})
+        self.assertEqual(r.status_code, 409, r.text)
+
+    def test_bootstrap_rejects_short_password(self):
+        r = self.client.post("/api/v1/auth/bootstrap",
+                             json={"user": "admin", "password": "123"})
+        self.assertEqual(r.status_code, 400, r.text)
+        # панель осталась открытой, но и пароля не появилось
+        self.assertFalse(self.client.get("/api/v1/auth").json()["enabled"])
+
+    def test_change_password_after_bootstrap(self):
+        self.client.post("/api/v1/auth/bootstrap",
+                         json={"user": "admin", "password": "secret123"})
+        r = self.client.post("/api/v1/auth/password", auth=("admin", "secret123"),
+                             json={"current_password": "secret123",
+                                   "new_password": "another42"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.get("/api/v1/auth", auth=("admin", "secret123")).status_code, 401)
+        self.assertEqual(self.client.get("/api/v1/auth", auth=("admin", "another42")).status_code, 200)

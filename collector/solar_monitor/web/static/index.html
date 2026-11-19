@@ -553,7 +553,9 @@
       <div class="body">
         <div class="muted" id="auth-info">—</div>
         <div class="form-grid" style="margin-top:10px">
-          <div><label data-i18n="auth.current">Текущий пароль</label>
+          <div id="auth-f-login" style="display:none"><label data-i18n="auth.login">Логин</label>
+            <input id="auth-login" type="text" value="admin" autocomplete="username"></div>
+          <div id="auth-f-current"><label data-i18n="auth.current">Текущий пароль</label>
             <input id="auth-current" type="password" autocomplete="current-password"></div>
           <div><label data-i18n="auth.new">Новый пароль</label>
             <input id="auth-new" type="password" autocomplete="new-password"></div>

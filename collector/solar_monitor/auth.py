@@ -102,6 +102,22 @@ class AuthStore:
         return False
 
     # -- изменение ------------------------------------------------------------
+    def bootstrap(self, user: str, password: str) -> None:
+        """Включить защиту впервые, когда авторизация выключена.
+
+        Заодно закрывает наихудший сценарий «панель открыта всем в сети»:
+        после вызова файл auth.json существует, и middleware требует Basic.
+        """
+        if self.enabled:
+            raise ValueError("авторизация уже включена — используйте смену пароля")
+        user = (user or "").strip() or DEFAULT_USER
+        if len(password or "") < MIN_LENGTH:
+            raise ValueError(f"пароль короче {MIN_LENGTH} символов")
+        self.data = {"user": user, "password": hash_password(password),
+                     "updated": int(time.time())}
+        self._save()
+        log.warning("ui auth enabled by bootstrap for user %r", user)
+
     def set_password(self, current_password: str, new_password: str,
                      new_user: str | None = None) -> None:
         user = self.info()["user"]

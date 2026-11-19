@@ -1338,31 +1338,59 @@ async function loadAuth() {
   if (!info) return;
   try {
     const d = await (await fetch(api('/api/v1/auth'))).json();
+    AUTH_INFO = d;
     const src = { env: t('auth.src_env'), file: t('auth.src_file'), off: t('auth.src_off') }[d.source] || d.source;
     info.textContent = d.enabled
       ? `${t('auth.user')}: ${d.user} · ${src}` + (d.updated ? ` · ${new Date(d.updated * 1000).toLocaleString()}` : '')
       : t('auth.disabled');
+
+    // авторизация выключена -> показываем режим «включить защиту»
+    const boot = !d.enabled;
+    if ($('auth-f-login')) $('auth-f-login').style.display = boot ? '' : 'none';
+    if ($('auth-f-current')) $('auth-f-current').style.display = boot ? 'none' : '';
+    const btn = $('auth-save');
+    if (btn) {
+      const key = boot ? 'auth.enable' : 'auth.save';
+      btn.textContent = t(key);
+      btn.dataset.mode = boot ? 'bootstrap' : 'change';
+    }
+    const note = document.querySelector('[data-i18n="auth.note"]');
+    if (note) {
+      note.textContent = boot ? t('auth.note_off') : t('auth.note');
+    }
   } catch (e) { info.textContent = t('auth.unavailable'); }
 }
 
 async function savePassword() {
   const msg = $('auth-msg');
-  const cur = $('auth-current').value;
+  const cur = $('auth-current') ? $('auth-current').value : '';
   const nw = $('auth-new').value;
   const rep = $('auth-repeat').value;
+  const login = $('auth-login') ? $('auth-login').value.trim() : '';
+  const boot = $('auth-save') && $('auth-save').dataset.mode === 'bootstrap';
   msg.className = 'msg';
   if (nw !== rep) { msg.className = 'msg err'; msg.textContent = t('auth.mismatch'); return; }
   if ((nw || '').length < 6) { msg.className = 'msg err'; msg.textContent = t('auth.too_short'); return; }
   msg.textContent = t('set.writing');
-  const r = await fetch(api('/api/v1/auth/password'), {
+  const url = boot ? '/api/v1/auth/bootstrap' : '/api/v1/auth/password';
+  const body = boot
+    ? { user: login || 'admin', password: nw }
+    : { current_password: cur, new_password: nw };
+  const r = await fetch(api(url), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ current_password: cur, new_password: nw }),
+    body: JSON.stringify(body),
   });
   const d = await r.json();
   msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
   msg.textContent = r.ok ? '✓ ' + d.message : '✗ ' + (d.error || r.status);
   if (r.ok) {
     $('auth-current').value = $('auth-new').value = $('auth-repeat').value = '';
+    if (boot) {
+      // дальше сервер требует Basic — перезагрузка вызовет запрос логина/пароля
+      msg.textContent = '✓ ' + d.message + ' — ' + t('auth.reload_hint');
+      setTimeout(() => location.reload(), 1500);
+      return;
+    }
     loadAuth();
   }
 }
