@@ -1,0 +1,17 @@
+# Оверрайд для Orange Pi 3 LTS: USB-кабель к инвертору + Grafana по сети.
+#
+#   docker compose -f docker-compose.yml -f deploy/orangepi/docker-compose.orangepi.yml up -d
+#
+# 1) Grafana не только на localhost (у неё свой логин, пароль в .env);
+# 2) /dev/ttyUSB0 внутрь collector + группа dialout — без правки основного compose.
+#    Стабильное имя адаптера: ls /dev/serial/by-id/  → заменить строку devices.
+services:
+  collector:
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    group_add:
+      - dialout
+
+  grafana:
+    ports:
+      - "${GRAFANA_LAN_PORT:-3001}:3000"
