@@ -24,4 +24,7 @@ venv/
 AGENTS.md
 .venv-esp/
 *.bin
+# готовые образы прошивки ESP32 (C++/PlatformIO) храним в git — их просят сохранять
+!firmware/esp32/builds/*.bin
+!firmware/esp32/builds/*.sha256
 firmware/esp32/config.json
