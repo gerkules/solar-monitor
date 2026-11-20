@@ -22,6 +22,7 @@ class SiteRegistry:
         self.states: dict[str, dict] = {}
         self.updated: dict[str, float] = {}
         self.online: dict[str, bool] = {}
+        self._extra_cache: tuple[float, set[str]] = (0.0, set())
         if mqtt is not None:
             mqtt.subscribe(f"{config.SITE_ROOT}/+/state", self._on_state)
             mqtt.subscribe(f"{config.SITE_ROOT}/+/status", self._on_status)
@@ -72,9 +73,31 @@ class SiteRegistry:
             self.updated.pop(site, None)
             self.online.pop(site, None)
 
+    def _extra_sites(self) -> set[str]:
+        """Доп. инверторы, настроенные на этом хосте (даже если они ещё ни разу
+        не публиковали состояние): их нужно показывать в списке сайтов, иначе
+        добавленный, но неотвечающий инвертор «пропадёт» из интерфейса.
+
+        Результат кешируется: `listing()` дёргает systemctl, а meta/sites
+        запрашиваются часто.
+        """
+        now = time.time()
+        cached_at, cached = self._extra_cache
+        if now - cached_at < 30.0:
+            return cached
+        names: set[str] = set()
+        try:
+            from . import inverters
+            if inverters.supported():
+                names = {i["site"] for i in inverters.listing()}
+        except Exception:  # noqa: BLE001 - без доп. инверторов живём спокойно
+            names = set()
+        self._extra_cache = (now, names)
+        return names
+
     def sites(self) -> list[dict]:
         self._prune()
-        names = set(self.states) | {config.SITE}
+        names = set(self.states) | {config.SITE} | self._extra_sites()
         out = []
         for name in sorted(names):
             state = self.get(name) or {}

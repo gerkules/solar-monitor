@@ -167,6 +167,7 @@
       <a href="#/inverter" data-view="inverter" data-i18n="sub.inverter">Инвертор</a>
       <a href="#/battery" data-view="battery" data-i18n="sub.battery">АКБ</a>
       <a href="#/connection" data-view="connection" data-i18n="sub.connection">Подключение</a>
+      <a href="#/inverters" data-view="inverters" data-i18n="sub.inverters">Инверторы</a>
       <a href="#/wifi" data-view="wifi" data-i18n="sub.wifi">Wi-Fi</a>
       <a href="#/automation" data-view="automation" data-i18n="sub.automation">Автоматизация</a>
       <a href="#/codes" data-view="codes" data-i18n="sub.codes">Коды</a>
@@ -482,6 +483,50 @@
           <span class="msg" id="conn-msg"></span>
         </div>
         <p class="muted" id="conn-hint" style="margin-top:8px"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= ИНВЕРТОРЫ (второй и далее) ======================= -->
+  <section class="view" id="view-inverters">
+    <div class="card">
+      <h3 data-i18n="inv2.title">Несколько инверторов на этом хосте</h3>
+      <div class="body">
+        <div class="statuses" id="inv2-status"></div>
+        <div id="inv2-list"></div>
+        <p class="muted" id="inv2-note" style="margin-top:8px"></p>
+      </div>
+    </div>
+    <div class="card">
+      <h3 data-i18n="inv2.add">Добавить инвертор</h3>
+      <div class="body">
+        <div class="form-grid">
+          <div><label data-i18n="inv2.site">Короткий id</label>
+            <input id="inv2-site" placeholder="garage" autocomplete="off"></div>
+          <div><label data-i18n="inv2.label">Название</label>
+            <input id="inv2-label" placeholder="Инвертор в гараже"></div>
+          <div><label data-i18n="conn.method">Способ подключения</label><select id="inv2-mode"></select></div>
+          <div id="inv2-f-tcp-host"><label data-i18n="conn.host">Хост</label>
+            <input id="inv2-tcp-host" placeholder="192.168.1.60"></div>
+          <div id="inv2-f-tcp-port"><label data-i18n="bat.port">Порт</label>
+            <input id="inv2-tcp-port" type="number" value="9999"></div>
+          <div id="inv2-f-serial-port"><label data-i18n="conn.adapter_port">Порт адаптера</label>
+            <input id="inv2-serial-port" list="inv2-ports" placeholder="/dev/ttyUSB0"></div>
+          <div id="inv2-f-serial-baud"><label data-i18n="bat.speed">Скорость</label>
+            <input id="inv2-serial-baud" type="number" value="2400"></div>
+          <div id="inv2-f-hid"><label>hidraw</label>
+            <input id="inv2-hid" list="inv2-hid-list" placeholder="/dev/hidraw0"></div>
+          <div id="inv2-f-topic"><label data-i18n="conn.topic">Топик EW10</label>
+            <input id="inv2-topic" placeholder="inverter/"></div>
+        </div>
+        <datalist id="inv2-ports"></datalist>
+        <datalist id="inv2-hid-list"></datalist>
+        <div class="form-actions">
+          <button class="pill" id="inv2-probe" data-i18n="conn.probe">Проверить связь</button>
+          <button class="primary" id="inv2-create" data-i18n="inv2.create">Добавить</button>
+          <span class="msg" id="inv2-msg"></span>
+        </div>
+        <p class="muted" id="inv2-hint" style="margin-top:8px"></p>
       </div>
     </div>
   </section>

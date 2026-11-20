@@ -147,6 +147,12 @@ PEER_TLS_VERIFY = _bool("PEER_TLS_VERIFY", False)
 BATTERY_CONFIG_FILE = os.getenv("BATTERY_CONFIG_FILE", "/data/battery.json")
 # Транспорт, выбранный в UI, хранится здесь и перекрывает TRANSPORT из .env
 CONNECTION_FILE = os.getenv("CONNECTION_FILE", "/data/connection.json")
+
+# ---- второй и последующие инверторы на одном хосте --------------------------
+# Каждый доп. инвертор = отдельный процесс solar-collector@<site>.service,
+# его конфиг лежит в INVERTERS_DIR (<site>.json + <site>.env).
+INVERTERS_DIR = os.getenv("INVERTERS_DIR", "/opt/solar-monitor/sites")
+INVERTERS_ENABLED = _bool("INVERTERS_ENABLED", True)
 BATTERY_SOURCE = os.getenv("BATTERY_SOURCE", "inverter").lower()
 BMS_PORT = os.getenv("BMS_PORT", "/dev/ttyUSB1")
 BMS_BAUD = _int("BMS_BAUD", 9600)

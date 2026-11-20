@@ -1590,8 +1590,164 @@ function renderRuleForm(meta, settings) {
   });
 }
 
+/* --------------------------------------------- вторая и далее инверторы */
+let INV2 = null;
+
+function inv2Target(it) {
+  if (it.mode === 'tcp') return `${it.tcp_host || '?'}:${it.tcp_port || ''}`;
+  if (it.mode === 'serial') return `${it.serial_port || '?'}@${it.serial_baud || ''}`;
+  if (it.mode === 'hid') return it.hid_device || '?';
+  if (it.mode === 'mqtt') return it.trans_topic || '?';
+  return '';
+}
+
+function inv2ModeLabel(mode) {
+  const key = `conn.mode.${mode}`;
+  const text = t(key);
+  return text === key ? mode : text;
+}
+
+function renderInverters() {
+  const d = INV2 || {};
+  $('inv2-status').innerHTML = [
+    status('inverter', t('inv2.current'), esc(d.current_site || '—'), ''),
+    status('inverter', t('inv2.count'), String((d.inverters || []).length), ''),
+    status('clock', t('inv2.unit'), esc(d.unit_template || '—'), ''),
+    status('bolt', t('inv2.support'), d.supported ? t('inv2.yes') : t('inv2.no'), '',
+      d.supported ? 'green' : 'red'),
+  ].join('');
+
+  const list = d.inverters || [];
+  $('inv2-list').innerHTML = list.length ? list.map((it) => `
+    <div class="inv-row" data-site="${esc(it.site)}">
+      <span class="dot ${it.active ? 'on' : ''}"></span>
+      <b>${esc(it.site)}</b>
+      <span class="muted">${esc(it.label || '')} · ${esc(inv2ModeLabel(it.mode))} ${esc(inv2Target(it))}</span>
+      <span class="pill">${it.active ? t('inv2.running') : t('inv2.stopped')}</span>
+      <button class="pill" data-inv-op="restart">↻ ${t('inv2.restart')}</button>
+      <button class="pill" data-inv-op="${it.active ? 'stop' : 'start'}">${it.active ? t('inv2.stop') : t('inv2.start')}</button>
+      <button class="pill" data-inv-op="delete">✕</button>
+    </div>`).join('') : `<p class="muted">${esc(t('inv2.empty'))}</p>`;
+
+  const note = $('inv2-note');
+  if (note) {
+    note.textContent = d.supported ? t('inv2.note')
+      : t('inv2.no_support', { dir: d.dir || '' });
+  }
+}
+
+async function loadInverters() {
+  let d;
+  try {
+    const r = await fetch(api('/api/v1/inverters'));
+    d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  } catch (e) {
+    $('inv2-status').innerHTML = '';
+    $('inv2-list').innerHTML = `<div class="msg err">✗ ${esc(String(e))}</div>`;
+    return;
+  }
+  INV2 = d;
+  const modes = d.modes || {};
+  const sel = $('inv2-mode');
+  if (sel && !sel.options.length) {
+    sel.innerHTML = Object.keys(modes).map((k) =>
+      `<option value="${k}">${esc(inv2ModeLabel(k))}</option>`).join('');
+  }
+  const ports = d.ports || {};
+  const pl = $('inv2-ports');
+  if (pl) pl.innerHTML = (ports.serial || []).map((p) => `<option value="${esc(p)}">`).join('');
+  const hl = $('inv2-hid-list');
+  if (hl) hl.innerHTML = (ports.hid || []).map((p) => `<option value="${esc(p)}">`).join('');
+  renderInverters();
+  syncInv2Fields();
+}
+
+function syncInv2Fields() {
+  const sel = $('inv2-mode');
+  if (!sel) return;
+  const mode = sel.value;
+  const show = (id, on) => { const el = $(id); if (el) el.style.display = on ? '' : 'none'; };
+  show('inv2-f-tcp-host', mode === 'tcp');
+  show('inv2-f-tcp-port', mode === 'tcp');
+  show('inv2-f-serial-port', mode === 'serial');
+  show('inv2-f-serial-baud', mode === 'serial');
+  show('inv2-f-hid', mode === 'hid');
+  show('inv2-f-topic', mode === 'mqtt');
+  const hint = $('inv2-hint');
+  if (hint) hint.textContent = t(`conn.hint.${mode}`);
+}
+
+function inv2Body() {
+  return {
+    site: $('inv2-site').value.trim().toLowerCase(),
+    label: $('inv2-label').value.trim(),
+    mode: $('inv2-mode').value,
+    tcp_host: $('inv2-tcp-host').value.trim(),
+    tcp_port: Number($('inv2-tcp-port').value) || 9999,
+    serial_port: $('inv2-serial-port').value.trim(),
+    serial_baud: Number($('inv2-serial-baud').value) || 2400,
+    hid_device: $('inv2-hid').value.trim(),
+    trans_topic: $('inv2-topic').value.trim(),
+  };
+}
+
+async function probeInv2() {
+  const msg = $('inv2-msg');
+  msg.className = 'msg'; msg.textContent = t('conn.checking');
+  const r = await fetch(api('/api/v1/inverters/probe'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(inv2Body()),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    msg.className = 'msg ok';
+    msg.textContent = `✓ ${d.target}: АКБ ${d.battery_voltage} В, сеть ${d.grid_voltage} В, `
+      + `нагрузка ${d.load_power} Вт · ${d.latency_ms} мс`;
+  } else {
+    msg.className = 'msg err';
+    msg.textContent = '✗ ' + (d.error || 'нет ответа');
+  }
+}
+
+async function createInv2() {
+  const msg = $('inv2-msg');
+  const body = inv2Body();
+  if (!body.site) { msg.className = 'msg err'; msg.textContent = '✗ ' + t('inv2.need_id'); return; }
+  msg.className = 'msg'; msg.textContent = t('inv2.creating');
+  const r = await fetch(api('/api/v1/inverters'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (!r.ok) { msg.className = 'msg err'; msg.textContent = '✗ ' + (d.error || r.status); return; }
+  msg.className = 'msg ok';
+  msg.textContent = t('inv2.added', { site: d.site });
+  setTimeout(() => location.reload(), 2500);
+}
+
+async function inv2Action(site, op) {
+  const msg = $('inv2-msg');
+  if (op === 'delete') {
+    if (!window.confirm(t('inv2.confirm_delete', { site }))) return;
+  }
+  const url = api(`/api/v1/inverters/${encodeURIComponent(site)}`);
+  const r = await fetch(op === 'delete' ? url : `${url}/${op}`, {
+    method: op === 'delete' ? 'DELETE' : 'POST',
+  });
+  const d = await r.json();
+  if (op === 'delete' && r.ok) {
+    msg.className = 'msg ok'; msg.textContent = t('inv2.deleted', { site });
+    setTimeout(() => location.reload(), 1500);
+    return;
+  }
+  msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  msg.textContent = (r.ok ? '✓ ' : '✗ ') + `${site}: ${d.result || d.error || r.status}`;
+  loadInverters();
+}
+
 /* ---------------------------------------------------------------- routing */
-const CONFIG_VIEWS = ['inverter', 'battery', 'connection', 'wifi', 'automation', 'codes', 'settings'];
+const CONFIG_VIEWS = ['inverter', 'battery', 'connection', 'inverters', 'wifi', 'automation', 'codes', 'settings'];
 
 function show(v) {
   view = v;
@@ -1613,6 +1769,7 @@ function show(v) {
   if (v === 'automation') loadAutomation();
   if (v === 'codes') loadCodes();
   if (v === 'connection') loadConnection();
+  if (v === 'inverters') loadInverters();
   if (v === 'wifi') loadWifi();
 }
 
@@ -1687,6 +1844,7 @@ function onLanguageChanged() {
   if (view === 'charts') { CODES = null; loadCharts(); }
   if (view === 'settings') loadSettings();
   if (view === 'connection') loadConnection();
+  if (view === 'inverters') loadInverters();
   if (view === 'codes') { CODES = null; loadCodes(); }
   if (view === 'automation') loadAutomation();
   if (view === 'battery') { loadBattery(); renderBattery(); }
@@ -1780,6 +1938,18 @@ async function boot() {
   $('energy-reload').addEventListener('click', loadEnergy);
   $('codes-filter').addEventListener('input', loadCodes);
   $('conn-mode').addEventListener('change', syncConnFields);
+  if ($('inv2-mode')) {
+    $('inv2-mode').addEventListener('change', syncInv2Fields);
+    $('inv2-probe').addEventListener('click', probeInv2);
+    $('inv2-create').addEventListener('click', createInv2);
+    $('inv2-list').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-inv-op]');
+      if (!btn) return;
+      const row = btn.closest('.inv-row');
+      if (!row) return;
+      inv2Action(row.dataset.site, btn.dataset.invOp);
+    });
+  }
   $('conn-probe').addEventListener('click', probeConnection);
   if ($('wifi-scan')) $('wifi-scan').addEventListener('click', scanWifi);
   if ($('wifi-rows')) {

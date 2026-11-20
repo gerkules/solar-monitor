@@ -553,4 +553,12 @@ class Poller:
                 self.cycle()
             except Exception:  # noqa: BLE001
                 log.exception("poll cycle failed, continuing")
+                # Устройство могло переподключиться (USB re-enumeration на одноплатнике):
+                # сбрасываем транспорт, чтобы следующий цикл открыл его заново.
+                # Для hidraw/serial это критично — иначе остаётся протухший fd
+                # и EIO повторяется до ручного рестарта сервиса.
+                try:
+                    self.transport.close()
+                except Exception:  # noqa: BLE001
+                    pass
                 time.sleep(1.0)

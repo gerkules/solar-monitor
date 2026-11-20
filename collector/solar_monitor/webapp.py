@@ -625,6 +625,70 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
         broker = getattr(poller, "mq", None)
         return conn_mod.probe(body, broker=broker)
 
+    # ---- несколько инверторов на одном хосте --------------------------------
+    # Второй инвертор = свой процесс solar-collector@<site>.service со своим
+    # SITE. Конфиги в INVERTERS_DIR, запуск — через helper inverter-ctl
+    # (deploy/pi/). В Docker без systemd всё честно отвечает supported:false.
+    @app.get("/api/v1/inverters")
+    def inverters_list(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import inverters as inv
+        return inv.snapshot()
+
+    @app.post("/api/v1/inverters")
+    async def inverters_create(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import inverters as inv
+        try:
+            return inv.create(await request.json())
+        except inv.InverterError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+        except OSError as ex:
+            return JSONResponse({"error": f"файловая ошибка: {ex}"}, status_code=500)
+
+    @app.post("/api/v1/inverters/probe")
+    async def inverters_probe(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import inverters as inv
+        try:
+            item = inv.normalize(await request.json())
+        except inv.InverterError as ex:
+            return JSONResponse({"ok": False, "error": str(ex)}, status_code=400)
+        return inv.probe_payload(item)
+
+    @app.put("/api/v1/inverters/{site}")
+    async def inverters_update(site: str, request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import inverters as inv
+        try:
+            return inv.update(site, await request.json())
+        except inv.InverterError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+
+    @app.delete("/api/v1/inverters/{site}")
+    def inverters_delete(site: str, request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import inverters as inv
+        try:
+            return inv.remove(site)
+        except inv.InverterError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=404)
+
+    @app.post("/api/v1/inverters/{site}/{op}")
+    def inverters_action(site: str, op: str, request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import inverters as inv
+        try:
+            return inv.action(site, op)
+        except inv.InverterError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+
     # ---- Wi-Fi (хост-сеть, не инвертор) ------------------------------------
     # Настоящая настройка требует root (polkit: wifi.scan и settings.modify —
     # auth_admin). Поэтому ходим в узкий helper через sudo NOPASSWD,

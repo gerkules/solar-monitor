@@ -31,6 +31,9 @@ python3 -m venv "$DST/venv"
     "pydantic<2" "fastapi>=0.100" "uvicorn>=0.27" "paho-mqtt>=2.0,<3" "pyserial>=3.5,<4"
 
 cp "$SRC/deploy/pi/solar-collector.service" /etc/systemd/system/
+# Шаблонный unit для второго и последующих инверторов (страница «Инверторы» в UI)
+cp "$SRC/deploy/pi/solar-collector@.service" /etc/systemd/system/
+install -d -m 750 -o solar -g solar "$DST/sites"
 
 # Аутентификация UI включена с установки (заводские admin/admin): Pi не должен
 # стартовать с открытой панелью. Пароль меняется в UI -> /data/auth.json.
@@ -51,6 +54,17 @@ visudo -cf /etc/sudoers.d/solar-wifi >/dev/null || {
     echo "ОШИБКА: /etc/sudoers.d/solar-wifi не прошёл проверку"; rm -f /etc/sudoers.d/solar-wifi; exit 1;
 }
 
+# Helper для доп. инверторов (solar-collector@<site>.service): UI добавляет
+# второй инвертор, а start/stop/enable требует root. Правило — только на скрипт.
+install -m 755 "$SRC/deploy/pi/inverter-ctl" /usr/local/lib/solar-monitor/inverter-ctl
+printf 'solar ALL=(root) NOPASSWD: /usr/local/lib/solar-monitor/inverter-ctl\n' \
+    > /etc/sudoers.d/solar-inverters
+chmod 440 /etc/sudoers.d/solar-inverters
+visudo -cf /etc/sudoers.d/solar-inverters >/dev/null || {
+    echo "ОШИБКА: /etc/sudoers.d/solar-inverters не прошёл проверку"
+    rm -f /etc/sudoers.d/solar-inverters; exit 1;
+}
+
 chown -R solar:solar "$DST" /data
 systemctl daemon-reload
 systemctl enable --now solar-collector
@@ -62,3 +76,4 @@ echo
 echo "USB-RS232: адаптер появится как /dev/ttyUSB0 (драйверы ch341/pl2303/ftdi/cp210x уже в ядре)."
 echo "Проверка: ls -l /dev/serial/by-id/ ; затем в UI «Подключение» -> «Проверить связь»."
 echo "Wi-Fi: страница «Wi-Fi» в UI (helper: /usr/local/lib/solar-monitor/wifi-helper)."
+echo "Второй инвертор: страница «Инверторы» в UI (unit: solar-collector@<id>.service)."

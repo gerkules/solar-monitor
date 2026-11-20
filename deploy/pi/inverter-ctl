@@ -1,0 +1,32 @@
+#!/bin/bash
+# Узкий привилегированный helper: управление доп. инверторами
+# (solar-collector@<site>.service). Коллектор работает под пользователем solar
+# и не может дёргать systemctl — правило sudoers разрешает только этот скрипт.
+#
+#   inverter-ctl <op> solar-collector@<site>.service
+#
+# op: start | stop | restart | enable | disable | reset-failed | is-active | is-enabled
+set -u
+
+SITE_RE='^[a-z][a-z0-9_-]{1,23}\.service$'
+
+op=${1:-}
+unit=${2:-}
+
+case "$op" in
+    start|stop|restart|enable|disable|reset-failed|is-active|is-enabled) ;;
+    *) echo "usage: inverter-ctl <op> solar-collector@<site>.service" >&2; exit 64 ;;
+esac
+
+# unit обязан быть шаблонным инстансом solar-collector@<site>.service
+case "$unit" in
+    solar-collector@*) site_part=${unit#solar-collector@} ;;
+    *) echo "недопустимый unit: $unit" >&2; exit 64 ;;
+esac
+
+if ! [[ "$site_part" =~ $SITE_RE ]]; then
+    echo "недопустимый id площадки: $site_part" >&2
+    exit 64
+fi
+
+exec /usr/bin/systemctl "$op" "$unit"
