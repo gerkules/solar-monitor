@@ -151,7 +151,7 @@ CONNECTION_FILE = os.getenv("CONNECTION_FILE", "/data/connection.json")
 # ---- второй и последующие инверторы на одном хосте --------------------------
 # Каждый доп. инвертор = отдельный процесс solar-collector@<site>.service,
 # его конфиг лежит в INVERTERS_DIR (<site>.json + <site>.env).
-INVERTERS_DIR = os.getenv("INVERTERS_DIR", "/opt/solar-monitor/sites")
+INVERTERS_DIR = os.getenv("INVERTERS_DIR", "/data/inverters")
 INVERTERS_ENABLED = _bool("INVERTERS_ENABLED", True)
 BATTERY_SOURCE = os.getenv("BATTERY_SOURCE", "inverter").lower()
 BMS_PORT = os.getenv("BMS_PORT", "/dev/ttyUSB1")

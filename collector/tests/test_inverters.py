@@ -28,6 +28,10 @@ class InverterTestCase(unittest.TestCase):
         self.sup = mock.patch.object(inverters, "supported", return_value=True)
         self.sup.start()
         self.addCleanup(self.sup.stop)
+        # по умолчанию проверяем systemd-ветку; ветка «дочерние процессы» — ниже
+        self.mode = mock.patch.object(inverters, "resolved_mode", return_value="systemd")
+        self.mode.start()
+        self.addCleanup(self.mode.stop)
 
     def _fake_systemctl(self, op, site, timeout=25.0):
         self.calls.append((op, site))
@@ -152,6 +156,19 @@ class CrudTests(InverterTestCase):
 
 
 class SupportTests(unittest.TestCase):
+    def test_missing_dir_but_writable_parent_is_supported(self):
+        """Свежий контейнер: /data/inverters ещё нет, но /data писать можно."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "inverters")
+            with mock.patch.object(config, "INVERTERS_DIR", target), \
+                    mock.patch.object(config, "INVERTERS_ENABLED", True), \
+                    mock.patch.object(inverters, "resolved_mode", return_value="process"):
+                self.assertTrue(inverters.supported())
+                os.makedirs(target)
+                self.assertTrue(inverters.supported())
+                with mock.patch.object(os, "access", return_value=False):
+                    self.assertFalse(inverters.supported())
+
     def test_unsupported_when_dir_missing(self):
         with mock.patch.object(config, "INVERTERS_DIR", "/nonexistent/solar-sites"):
             self.assertFalse(inverters.supported())
@@ -200,3 +217,101 @@ class SiteRegistryTests(InverterTestCase):
         registry.sites()
         with mock.patch.object(inverters, "listing", side_effect=AssertionError("кеш не работает")):
             self.assertIn("garage", [s["site"] for s in registry.sites()])
+
+
+class FakePopen:
+    """Заглушка subprocess.Popen: дочерний коллектор в тестах не запускается."""
+
+    instances = []
+
+    def __init__(self, args, env=None, cwd=None, **kw):
+        self.args, self.env = args, env or {}
+        self.pid = 4242
+        self._alive = True
+        FakePopen.instances.append(self)
+
+    def poll(self):
+        return None if self._alive else 1
+
+    def terminate(self):
+        self._alive = False
+
+    def kill(self):
+        self._alive = False
+
+    def wait(self, timeout=None):
+        self._alive = False
+        return 0
+
+
+class ProcessModeTests(InverterTestCase):
+    """Docker/VDS: доп. инвертор — дочерний процесс контейнера, без root."""
+
+    def setUp(self):
+        super().setUp()
+        self.mode.stop()                      # отменяем systemd-заглушку
+        self.mode = mock.patch.object(inverters, "resolved_mode", return_value="process")
+        self.mode.start()
+        self.addCleanup(self.mode.stop)       # иначе подмена «протечёт» в другие тесты
+        FakePopen.instances = []
+        self.popen = mock.patch.object(inverters.subprocess, "Popen", FakePopen)
+        self.popen.start()
+        self.addCleanup(self.popen.stop)
+        self.supervisor = inverters.ProcessSupervisor.instance()
+        self.supervisor.procs.clear()
+        self.addCleanup(self.supervisor.procs.clear)
+
+    def test_create_starts_child_process(self):
+        created = inverters.create(self.payload(site="solar2"))
+        self.assertTrue(created["active"])
+        self.assertEqual(len(FakePopen.instances), 1)
+        env = FakePopen.instances[0].env
+        self.assertEqual(env["SITE"], "solar2")
+        self.assertEqual(env["TRANSPORT"], "tcp")
+        self.assertEqual(env["WEBAPP"], "0")
+        self.assertEqual(env["API_PORT"], "0")
+        # вложенных супервизоров быть не должно
+        self.assertEqual(env["INVERTERS_ENABLED"], "0")
+        self.assertNotIn("TLS_CERT", env)
+        # свои файлы состояния
+        self.assertTrue(env["ENERGY_FILE"].endswith("solar2.energy.json"))
+
+    def test_stop_then_supervisor_keeps_it_down(self):
+        inverters.create(self.payload(site="solar2"))
+        res = inverters.action("solar2", "stop")
+        self.assertFalse(res["active"])
+        self.assertFalse(res["enabled"])
+        # enabled=false в конфиге => супервизор не поднимает процесс
+        stored = inverters._read("solar2")
+        self.assertFalse(stored["enabled"])
+
+    def test_start_again_and_restart(self):
+        inverters.create(self.payload(site="solar2"))
+        inverters.action("solar2", "stop")
+        res = inverters.action("solar2", "start")
+        self.assertTrue(res["active"])
+        res = inverters.action("solar2", "restart")
+        self.assertTrue(res["active"])
+
+    def test_dead_child_is_restarted_by_supervisor_loop(self):
+        inverters.create(self.payload(site="solar2"))
+        FakePopen.instances[0]._alive = False       # процесс упал
+        item = inverters.listing()[0]
+        self.assertFalse(item["active"])
+        self.supervisor.start(item)                 # то же, что делает loop()
+        self.assertTrue(self.supervisor.state("solar2", item)["active"])
+        self.assertEqual(len(FakePopen.instances), 2)
+
+    def test_remove_kills_process(self):
+        inverters.create(self.payload(site="solar2"))
+        proc = FakePopen.instances[0]
+        inverters.remove("solar2")
+        self.assertFalse(proc._alive)
+        self.assertEqual(inverters.listing(), [])
+
+    def test_mode_off_disables_feature(self):
+        self.mode.stop()                 # снять подмену resolved_mode
+        self.sup.stop()                  # и подмену supported
+        with mock.patch.dict(os.environ, {"INVERTERS_MODE": "off"}):
+            self.assertEqual(inverters.resolved_mode(), "off")
+            self.assertFalse(inverters.supported())

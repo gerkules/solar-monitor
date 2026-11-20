@@ -33,7 +33,7 @@ python3 -m venv "$DST/venv"
 cp "$SRC/deploy/pi/solar-collector.service" /etc/systemd/system/
 # Шаблонный unit для второго и последующих инверторов (страница «Инверторы» в UI)
 cp "$SRC/deploy/pi/solar-collector@.service" /etc/systemd/system/
-install -d -m 750 -o solar -g solar "$DST/sites"
+install -d -m 750 -o solar -g solar /data/inverters
 
 # Аутентификация UI включена с установки (заводские admin/admin): Pi не должен
 # стартовать с открытой панелью. Пароль меняется в UI -> /data/auth.json.
@@ -76,4 +76,4 @@ echo
 echo "USB-RS232: адаптер появится как /dev/ttyUSB0 (драйверы ch341/pl2303/ftdi/cp210x уже в ядре)."
 echo "Проверка: ls -l /dev/serial/by-id/ ; затем в UI «Подключение» -> «Проверить связь»."
 echo "Wi-Fi: страница «Wi-Fi» в UI (helper: /usr/local/lib/solar-monitor/wifi-helper)."
-echo "Второй инвертор: страница «Инверторы» в UI (unit: solar-collector@<id>.service)."
+echo "Второй инвертор: страница «Инверторы» в UI (unit: solar-collector@<id>.service, конфиги /data/inverters)."

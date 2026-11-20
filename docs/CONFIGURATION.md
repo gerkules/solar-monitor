@@ -36,7 +36,8 @@
 | Переменная | По умолчанию | Смысл |
 |---|---|---|
 | `INVERTERS_ENABLED` | `1` | разрешить управление доп. инверторами из UI |
-| `INVERTERS_DIR` | `/opt/solar-monitor/sites` | `<site>.json` + `<site>.env` (по одному на инвертор) |
+| `INVERTERS_MODE` | `auto` | `systemd` (нативный хост) / `process` (Docker: дочерние процессы) / `off` |
+| `INVERTERS_DIR` | `/data/inverters` | `<site>.json` + `<site>.env` (по одному на инвертор) |
 | `SUPERVISOR_CMD` | `sudo -n /usr/local/lib/solar-monitor/inverter-ctl` | как звать systemd |
 
 Что делает «Добавить»: пишет `<site>.env` (общие настройки наследуются из
@@ -45,10 +46,12 @@
 Веб-интерфейс у доп. инверторов по умолчанию выключен (`WEBAPP=0`) — экономим RAM;
 их данные видно здесь же, выбрав сайт в шапке.
 
-Нужны шаблонный unit `solar-collector@.service`, helper `inverter-ctl` и правило
-sudoers — всё ставит `deploy/pi/install-pi.sh` (проверить: `curl -u admin …/api/v1/inverters`).
-В Docker вместо этого поднимают второй контейнер с другим `SITE` (systemd внутри нет,
-поэтому `supported: false`).
+На нативном хосте нужны шаблонный unit `solar-collector@.service`, helper
+`inverter-ctl` и правило sudoers — всё ставит `deploy/pi/install-pi.sh`
+(проверить: `curl -u admin …/api/v1/inverters`). В Docker (systemd внутри нет)
+включается режим `process`: панель сама поднимает дочерние процессы того же
+контейнера и следит, чтобы они не падали; конфиги и файлы состояния живут в томе
+`/data`. Отдельные контейнеры на инвертор тоже возможны, но их придётся вести руками.
 
 ## Опрос
 

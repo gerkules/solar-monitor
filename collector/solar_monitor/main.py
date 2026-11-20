@@ -14,8 +14,8 @@ import threading
 import time
 
 from . import auth as auth_mod, battery, config, connection as conn_mod, forecast, \
-    notifier as notifier_mod, publishers, rules as rules_mod, sa_source, \
-    settings as settings_mod, sites as sites_mod
+    inverters as inverters_mod, notifier as notifier_mod, publishers, \
+    rules as rules_mod, sa_source, settings as settings_mod, sites as sites_mod
 from .poller import Poller
 from .transports import TransportError, make_transport
 
@@ -83,6 +83,12 @@ def main() -> int:
         poller.battery = batt_monitor
     forecast_svc = forecast.ForecastService(poller=poller, influx=influx, mqtt=mq)
     site_registry = sites_mod.SiteRegistry(mq, local_poller=poller)
+    # второй и последующие инверторы на этом хосте (страница «Инверторы»):
+    # в Docker — дочерние процессы контейнера, на нативном хосте — systemd-инстансы
+    try:
+        inverters_mod.supervise()
+    except Exception:  # noqa: BLE001 - без доп. инверторов коллектор работает
+        log.exception("супервизор доп. инверторов не поднялся")
     log.info("battery source: %s", batt_monitor.describe())
     log.info("automation: %s rules, notify channels: %s",
              len(rule_engine.list()), ", ".join(notifier.channels()) or "none")

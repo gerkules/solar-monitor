@@ -15,7 +15,9 @@
 * привилегированные действия (start/stop/enable) идут через узкий helper
   ``inverter-ctl`` с правилом sudoers — см. ``deploy/pi/``.
 
-В Docker-режиме (нет systemd) модуль честно отвечает ``supported: false``.
+В Docker-режиме (нет systemd) модуль запускает доп. инверторы как дочерние
+процессы того же контейнера: конфиг и файлы состояния те же, но никаких
+привилегий не нужно. Включается само (`INVERTERS_MODE=auto`).
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 
 from . import config
@@ -71,12 +74,34 @@ def _env_path(site: str) -> str:
 
 
 def supported() -> bool:
-    """Есть ли systemd и права писать в каталог конфигов."""
-    if not config.INVERTERS_ENABLED:
+    """Можно ли добавлять доп. инверторы на этом хосте.
+
+    Каталога может ещё не быть (свежий контейнер) — тогда смотрим, что его
+    есть куда создать: `create()` сделает `makedirs`.
+    """
+    if not config.INVERTERS_ENABLED or resolved_mode() == "off":
         return False
-    if not os.path.isdir("/run/systemd/system"):
-        return False
-    return os.path.isdir(directory()) and os.access(directory(), os.W_OK)
+    path = directory().rstrip("/") or "/"
+    if os.path.isdir(path):
+        return os.access(path, os.W_OK)
+    parent = os.path.dirname(path) or "/"
+    return os.path.isdir(parent) and os.access(parent, os.W_OK)
+
+
+def resolved_mode() -> str:
+    """`systemd` (нативный хост), `process` (Docker/без systemd) или `off`."""
+    want = os.getenv("INVERTERS_MODE", "auto").strip().lower()
+    if want in ("off", "0", "false", "no"):
+        return "off"
+    if want == "systemd":
+        return "systemd"
+    if want == "process":
+        return "process"
+    # auto: systemd + helper есть — значит нативный хост, иначе дочерние процессы
+    if os.path.isdir("/run/systemd/system") and os.path.exists(
+            _supervisor_cmd()[-1] if _supervisor_cmd() else ""):
+        return "systemd"
+    return "process"
 
 
 def _supervisor_cmd() -> list[str]:
@@ -102,6 +127,128 @@ def _unit_state(site: str) -> dict:
     return {"active": active_out.startswith("active") if active_out else False,
             "enabled": enabled_out.split()[0] == "enabled" if enabled_out else False,
             "state": active_out or "unknown"}
+
+
+def _item_state(site: str, item: dict) -> dict:
+    """Состояние инвертора в зависимости от режима хоста."""
+    if resolved_mode() == "systemd":
+        return _unit_state(site)
+    return ProcessSupervisor.instance().state(site, item)
+
+
+# --------------------------------------------------------------------------- #
+# режим "process": доп. инверторы — дочерние процессы того же контейнера
+# --------------------------------------------------------------------------- #
+class ProcessSupervisor:
+    """Держит доп. коллекторы живыми там, где нет systemd (Docker/VDS).
+
+    * `enabled` в `<site>.json` — должен ли инвертор работать;
+    * упавший процесс поднимается через 5 с;
+    * при старте контейнера все `enabled` инверторы запускаются сами.
+
+    Ставить их отдельными контейнерами тоже можно, но тогда их надо вести
+    руками — здесь это делает сама панель.
+    """
+
+    _instance: "ProcessSupervisor | None" = None
+
+    def __init__(self):
+        self.procs: dict[str, subprocess.Popen] = {}
+        self.lock = threading.Lock()
+        self.thread: threading.Thread | None = None
+
+    @classmethod
+    def instance(cls) -> "ProcessSupervisor":
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    # -- окружение дочернего коллектора ------------------------------------
+    def child_env(self, item: dict) -> dict:
+        env = dict(os.environ)
+        pairs = _env_pairs(item) + [
+            ("POLL_INTERVAL", f"{item['poll_interval']:g}"),
+            # веб-сервер у доп. инвертора не нужен: UI показывает его данные сам
+            ("WEBAPP", "0"),
+            ("API_PORT", "0"),
+            ("INVERTERS_ENABLED", "0"),      # без вложенных супервизоров
+            ("INVERTERS_CHILD", "1"),
+        ]
+        for name in STATE_FILES:
+            suffix = name.lower().replace("_file", "")
+            pairs.append((name, os.path.join(directory(), f"{item['site']}.{suffix}.json")))
+        env.update({k: str(v) for k, v in pairs})
+        for tls in ("TLS_CERT", "TLS_KEY"):       # файлы сертификатов главного сайта
+            env.pop(tls, None)
+        return env
+
+    # -- операции ----------------------------------------------------------
+    def start(self, item: dict) -> tuple[bool, str]:
+        site = item["site"]
+        with self.lock:
+            proc = self.procs.get(site)
+            if proc is not None and proc.poll() is None:
+                return True, "уже запущен"
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            try:
+                proc = subprocess.Popen([sys.executable, "-m", "solar_monitor.main"],
+                                        env=self.child_env(item), cwd=root)
+            except OSError as ex:
+                return False, repr(ex)
+            self.procs[site] = proc
+            log.info("инвертор %s: запущен (pid %s)", site, proc.pid)
+            return True, f"pid {proc.pid}"
+
+    def stop(self, site: str) -> str:
+        with self.lock:
+            proc = self.procs.pop(site, None)
+            if proc is None or proc.poll() is not None:
+                return "не запущен"
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            log.info("инвертор %s: остановлен", site)
+            return "остановлен"
+
+    def state(self, site: str, item: dict | None = None) -> dict:
+        proc = self.procs.get(site)
+        alive = bool(proc is not None and proc.poll() is None)
+        enabled = True if item is None else bool(item.get("enabled", True))
+        state = "running" if alive else ("pending" if enabled else "disabled")
+        return {"active": alive, "enabled": enabled, "state": state,
+                "pid": proc.pid if alive else None}
+
+    # -- супервизор --------------------------------------------------------
+    def loop(self):
+        while True:
+            try:
+                for item in listing():
+                    if not item.get("enabled", True):
+                        continue
+                    if not self.state(item["site"], item)["active"]:
+                        self.start(item)
+            except Exception:                     # noqa: BLE001 - супервизор не падает
+                log.exception("супервизор инверторов: ошибка цикла")
+            time.sleep(5.0)
+
+    def run_in_background(self):
+        if self.thread is not None and self.thread.is_alive():
+            return
+        self.thread = threading.Thread(target=self.loop, name="inverters", daemon=True)
+        self.thread.start()
+        log.info("доп. инверторы: режим process, каталог %s", directory())
+
+
+def supervise():
+    """Поднять супервизор доп. инверторов (для режима process)."""
+    if not config.INVERTERS_ENABLED or resolved_mode() != "process":
+        return
+    if not supported():
+        log.warning("доп. инверторы: каталог %s недоступен для записи", directory())
+        return
+    ProcessSupervisor.instance().run_in_background()
 
 
 # --------------------------------------------------------------------------- #
@@ -138,6 +285,7 @@ def normalize(payload: dict) -> dict:
         "mode": mode,
         "webapp": bool(payload.get("webapp")),
         "api_port": int(payload.get("api_port") or 0),
+        "enabled": bool(payload.get("enabled", True)),
         "poll_interval": float(payload.get("poll_interval") or config.POLL_INTERVAL),
     }
     for key in ENV_FIELDS:
@@ -294,7 +442,10 @@ def listing() -> list[dict]:
             continue
         item = _read(site) or {}
         item.setdefault("site", site)
-        item.update(_unit_state(site))
+        try:
+            item.update(_item_state(site, item))
+        except Exception:                        # noqa: BLE001 - состояние не критично
+            item.setdefault("active", False)
         item["env_file"] = _env_path(site)
         out.append(item)
     return out
@@ -304,8 +455,10 @@ def snapshot() -> dict:
     return {
         "supported": supported(),
         "enabled": config.INVERTERS_ENABLED,
+        "mode": resolved_mode(),
         "dir": directory(),
-        "unit_template": "solar-collector@.service",
+        "unit_template": ("solar-collector@.service" if resolved_mode() == "systemd"
+                          else "дочерний процесс контейнера"),
         "current_site": config.SITE,
         "inverters": listing(),
         "modes": _modes_public(),
@@ -325,19 +478,26 @@ def _ports_public() -> dict:
 
 def create(payload: dict) -> dict:
     if not supported():
-        raise InverterError("хост не умеет запускать доп. инверторы "
-                            "(нужен systemd и каталог " + directory() + ")")
+        raise InverterError("нельзя добавить инвертор: нужен каталог для конфигов "
+                            "(" + directory() + ") и режим запуска")
     item = normalize(payload)
     if _read(item["site"]) is not None:
         raise InverterError(f"инвертор {item['site']!r} уже добавлен")
+    item["enabled"] = True
     _write_files(item)
-    rc, out = _systemctl("enable", item["site"])
-    if rc != 0:
-        _remove_files(item["site"])
-        raise InverterError(f"systemd enable не сработал: {out or rc}")
-    _systemctl("restart", item["site"])
+    if resolved_mode() == "systemd":
+        rc, out = _systemctl("enable", item["site"])
+        if rc != 0:
+            _remove_files(item["site"])
+            raise InverterError(f"systemd enable не сработал: {out or rc}")
+        _systemctl("restart", item["site"])
+    else:
+        ok, out = ProcessSupervisor.instance().start(item)
+        if not ok:
+            _remove_files(item["site"])
+            raise InverterError(f"процесс не запустился: {out}")
     log.info("добавлен инвертор %s (%s)", item["site"], item["mode"])
-    return {**item, **_unit_state(item["site"])}
+    return {**item, **_item_state(item["site"], item)}
 
 
 def update(site: str, payload: dict) -> dict:
@@ -346,16 +506,24 @@ def update(site: str, payload: dict) -> dict:
         raise InverterError(f"инвертора {site!r} нет")
     item = normalize({**current, **payload, "site": site})
     _write_files(item)
-    _systemctl("restart", site)
-    return {**item, **_unit_state(site)}
+    if resolved_mode() == "systemd":
+        _systemctl("restart", site)
+    else:
+        ProcessSupervisor.instance().stop(site)
+        if item.get("enabled", True):
+            ProcessSupervisor.instance().start(item)
+    return {**item, **_item_state(site, item)}
 
 
 def remove(site: str) -> dict:
     if _read(site) is None:
         raise InverterError(f"инвертора {site!r} нет")
-    _systemctl("stop", site)
-    _systemctl("disable", site)
-    _systemctl("reset-failed", site)      # иначе unit остаётся в state=failed
+    if resolved_mode() == "systemd":
+        _systemctl("stop", site)
+        _systemctl("disable", site)
+        _systemctl("reset-failed", site)      # иначе unit остаётся в state=failed
+    else:
+        ProcessSupervisor.instance().stop(site)
     _remove_files(site)
     log.info("инвертор %s удалён", site)
     return {"ok": True, "site": site}
@@ -364,8 +532,33 @@ def remove(site: str) -> dict:
 def action(site: str, op: str) -> dict:
     if op not in OPS:
         raise InverterError(f"неизвестная операция {op!r}")
-    if _read(site) is None:
+    item = _read(site)
+    if item is None:
         raise InverterError(f"инвертора {site!r} нет")
-    rc, out = _systemctl(op, site)
-    return {"ok": rc == 0 or op.startswith("is-"), "site": site, "op": op,
-            "result": out, **_unit_state(site)}
+    item.setdefault("site", site)
+    if resolved_mode() == "systemd":
+        rc, out = _systemctl(op, site)
+        return {"ok": rc == 0 or op.startswith("is-"), "site": site, "op": op,
+                "result": out, **_unit_state(site)}
+
+    # process: «enable/disable» — это флаг в конфиге, остальное — процессы
+    sup = ProcessSupervisor.instance()
+    if op in ("start", "enable"):
+        item["enabled"] = True
+        _write_files(normalize(item))
+        ok, out = sup.start(normalize(item))
+    elif op in ("stop", "disable"):
+        item["enabled"] = False
+        _write_files(normalize(item))
+        out = sup.stop(site)
+        ok = True
+    elif op == "restart":
+        sup.stop(site)
+        ok, out = sup.start(normalize(item))
+    elif op == "reset-failed":
+        ok, out = True, "не применимо"
+    else:                                        # is-active / is-enabled
+        st = sup.state(site, item)
+        value = "active" if st["active"] else ("enabled" if st["enabled"] else "inactive")
+        return {"ok": True, "site": site, "op": op, "result": value, **st}
+    return {"ok": ok, "site": site, "op": op, "result": out, **_item_state(site, item)}

@@ -10,10 +10,10 @@ Group=solar
 # /dev/ttyUSB* (USB-RS232/RS485) и /dev/hidraw* (нативный USB инвертора)
 SupplementaryGroups=dialout
 WorkingDirectory=/opt/solar-monitor/collector
-# Общие настройки — из основного .env, отличия — из sites/<id>.env
+# Общие настройки — из основного .env, отличия — из /data/inverters/<id>.env
 # (второй файл перекрывает первый; см. страницу «Инверторы» в UI).
 EnvironmentFile=-/opt/solar-monitor/.env
-EnvironmentFile=/opt/solar-monitor/sites/%i.env
+EnvironmentFile=/data/inverters/%i.env
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/solar-monitor/venv/bin/python -m solar_monitor.main
 Restart=always
