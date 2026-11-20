@@ -642,11 +642,14 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         from . import inverters as inv
         try:
-            return inv.create(await request.json())
+            created = inv.create(await request.json())
         except inv.InverterError as ex:
             return JSONResponse({"error": str(ex)}, status_code=400)
         except OSError as ex:
             return JSONResponse({"error": f"файловая ошибка: {ex}"}, status_code=500)
+        if sites is not None:                     # площадка сразу в списке сайтов
+            sites.invalidate_extra()
+        return created
 
     @app.post("/api/v1/inverters/probe")
     async def inverters_probe(request: Request):
@@ -665,9 +668,12 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         from . import inverters as inv
         try:
-            return inv.update(site, await request.json())
+            updated = inv.update(site, await request.json())
         except inv.InverterError as ex:
             return JSONResponse({"error": str(ex)}, status_code=400)
+        if sites is not None:
+            sites.invalidate_extra()
+        return updated
 
     @app.delete("/api/v1/inverters/{site}")
     def inverters_delete(site: str, request: Request):
@@ -675,9 +681,12 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         from . import inverters as inv
         try:
-            return inv.remove(site)
+            removed = inv.remove(site)
         except inv.InverterError as ex:
             return JSONResponse({"error": str(ex)}, status_code=404)
+        if sites is not None:
+            sites.invalidate_extra()
+        return removed
 
     @app.post("/api/v1/inverters/{site}/{op}")
     def inverters_action(site: str, op: str, request: Request):

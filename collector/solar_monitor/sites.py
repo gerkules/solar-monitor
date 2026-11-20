@@ -83,7 +83,7 @@ class SiteRegistry:
         """
         now = time.time()
         cached_at, cached = self._extra_cache
-        if now - cached_at < 30.0:
+        if now - cached_at < 10.0:
             return cached
         names: set[str] = set()
         try:
@@ -94,6 +94,10 @@ class SiteRegistry:
             names = set()
         self._extra_cache = (now, names)
         return names
+
+    def invalidate_extra(self):
+        """Сбросить кеш доп. инверторов (после добавления/изменения/удаления)."""
+        self._extra_cache = (0.0, set())
 
     def sites(self) -> list[dict]:
         self._prune()
