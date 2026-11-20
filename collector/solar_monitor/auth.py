@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 import time
 
 from . import config
@@ -21,6 +22,16 @@ log = logging.getLogger("auth")
 ITERATIONS = 200_000
 ALGO = "pbkdf2_sha256"
 MIN_LENGTH = 6
+# Кеш успешных проверок: PBKDF2 с 200k итераций на Pi 1 (700 МГц) считается
+# секундами, а Basic приходит с КАЖДЫМ запросом — без кеша страница с десятком
+# файлов занимает ядро на минуты. Ключ — sha256(пользователь:пароль:хеш записи).
+VERIFY_CACHE_TTL = 600.0
+# Неудачные попытки кешируем на минуту и включаем «предохранитель»: одна проверка
+# PBKDF2 на Pi 1 — это ~6 с CPU, поэтому подбор пароля снаружи иначе вешает панель.
+VERIFY_FAIL_TTL = 60.0
+FAIL_BURST = 5            # столько неудач подряд…
+FAIL_BURST_WINDOW = 60.0  # …за это время включают предохранитель
+_fail_times: list[float] = []
 # Пароль «из коробки»: его знает любой, кто прочитал README, поэтому UI настойчиво
 # предлагает сменить его, а в лог пишется предупреждение.
 DEFAULT_USER = "admin"
@@ -43,6 +54,57 @@ def verify(password: str, record: dict) -> bool:
     except (KeyError, ValueError, TypeError):
         return False
     return hmac.compare_digest(digest.hex(), str(record.get("hash", "")))
+
+
+#: sha256(...) -> (время истечения, результат)
+_verify_cache: dict[str, tuple[float, bool]] = {}
+_verify_lock = threading.Lock()
+
+
+def _cache_key(user: str, password: str, record: dict) -> str:
+    raw = "\x00".join((str(user), str(password), str(record.get("hash", "")),
+                       str(record.get("salt", "")))).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def under_bruteforce_guard() -> bool:
+    """Слишком много неудач за минуту — PBKDF2 не считаем вообще."""
+    now = time.time()
+    with _verify_lock:
+        _fail_times[:] = [t for t in _fail_times if now - t < FAIL_BURST_WINDOW]
+        return len(_fail_times) >= FAIL_BURST
+
+
+def cached_verify(user: str, password: str, record: dict) -> bool:
+    """verify() с кешем исходов и предохранителем от подбора."""
+    key = _cache_key(user, password, record)
+    now = time.time()
+    with _verify_lock:
+        hit = _verify_cache.get(key)
+        if hit and hit[0] > now:
+            return hit[1]
+        if hit:                     # протухло — выбросим
+            _verify_cache.pop(key, None)
+    if under_bruteforce_guard():
+        log.warning("auth: слишком много неудачных попыток — вход временно заморожен")
+        return False
+    ok = verify(password, record)
+    with _verify_lock:
+        if ok:
+            if len(_verify_cache) > 256:      # страховка от роста
+                for k in [k for k, v in _verify_cache.items() if v[0] <= now]:
+                    _verify_cache.pop(k, None)
+            _verify_cache[key] = (now + VERIFY_CACHE_TTL, True)
+        else:
+            _verify_cache[key] = (now + VERIFY_FAIL_TTL, False)
+            _fail_times.append(now)
+    return ok
+
+
+def clear_cache() -> None:
+    with _verify_lock:
+        _verify_cache.clear()
+        _fail_times.clear()
 
 
 class AuthStore:
@@ -69,6 +131,7 @@ class AuthStore:
                 json.dump(self.data, f)
             os.chmod(tmp, 0o600)
             os.replace(tmp, self.path)
+            clear_cache()               # старые пароли больше не проходят
         except OSError as ex:
             log.warning("cannot save auth file: %r", ex)
 
@@ -95,7 +158,8 @@ class AuthStore:
     def check(self, user: str, password: str) -> bool:
         rec = self.data.get("password")
         if rec and self.data.get("user"):
-            return hmac.compare_digest(str(user), str(self.data["user"])) and verify(password, rec)
+            return (hmac.compare_digest(str(user), str(self.data["user"]))
+                    and cached_verify(user, password, rec))
         if config.AUTH_USER and config.AUTH_PASSWORD:
             return (hmac.compare_digest(user, config.AUTH_USER)
                     and hmac.compare_digest(password, config.AUTH_PASSWORD))

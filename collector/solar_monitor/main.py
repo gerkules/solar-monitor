@@ -6,6 +6,7 @@ One process, one inverter: works over USB-HID, USB-RS232 serial, raw TCP
 """
 from __future__ import annotations
 
+import faulthandler
 import logging
 import os
 import signal
@@ -18,6 +19,13 @@ from . import auth as auth_mod, battery, config, connection as conn_mod, forecas
     rules as rules_mod, sa_source, settings as settings_mod, sites as sites_mod
 from .poller import Poller
 from .transports import TransportError, make_transport
+
+# Диагностика: `kill -USR1 <pid>` печатает стеки всех потоков в stderr (журнал).
+# Нужно, когда один поток «крутится» и непонятно какой (на Pi 1 это заметно).
+try:
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
+except (AttributeError, ValueError):        # платформа без faulthandler
+    pass
 
 
 def setup_logging():

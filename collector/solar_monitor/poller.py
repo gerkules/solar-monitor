@@ -73,8 +73,11 @@ class Poller:
 
     def health(self) -> dict:
         last = self.state.get("last_update")
+        # «Здоров» = данные свежие. Один пропущенный опрос (USB-сброс, помеха) —
+        # ещё не повод отдавать 503: иначе дёргаются healthcheck и watchdog.
+        fresh = bool(last) and (time.time() - last) < config.OFFLINE_AFTER
         return {
-            "ok": self.fails == 0 and bool(last),
+            "ok": fresh,
             "online": self.online,
             "last_update": last,
             "age_s": round(time.time() - last, 1) if last else None,

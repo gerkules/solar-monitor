@@ -1,0 +1,15 @@
+[Unit]
+Description=Console font for the Pi node (Terminus 16, Cyrillic)
+# console-setup на Pi OS иногда не применяет FONTFACE (в кэше остаётся пустой
+# setfont), из-за чего консоль показывает огромные символы. Ставим шрифт явно.
+After=keyboard-setup.service
+Before=getty@tty1.service
+ConditionPathExists=/usr/share/consolefonts/CyrAsia-Terminus16.psf.gz
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/setfont -f /usr/share/consolefonts/CyrAsia-Terminus16.psf.gz
+
+[Install]
+WantedBy=multi-user.target

@@ -60,6 +60,11 @@ install -m 644 "$SRC/deploy/pi/60-voltronic-hid.rules" /etc/udev/rules.d/60-volt
 udevadm control --reload-rules || true
 udevadm trigger --subsystem-match=hidraw || true
 
+# Консоль: явный шрифт (иначе console-setup оставляет огромный дефолт)
+install -m 644 "$SRC/deploy/pi/console-font.service" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable console-font.service >/dev/null 2>&1 || true
+
 # Файрвол: Pi живёт в общем сегменте «провайдера», наружу только брокер и панель
 # и только для наших адресов (см. deploy/pi/nftables.conf).
 install -m 644 "$SRC/deploy/pi/nftables.conf" /etc/nftables.conf
