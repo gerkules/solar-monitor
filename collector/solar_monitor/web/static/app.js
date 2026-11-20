@@ -1689,6 +1689,7 @@ function inv2Body() {
     serial_baud: Number($('inv2-serial-baud').value) || 2400,
     hid_device: $('inv2-hid').value.trim(),
     trans_topic: $('inv2-topic').value.trim(),
+    poll_interval: Number($('inv2-poll').value) || 10,
   };
 }
 
