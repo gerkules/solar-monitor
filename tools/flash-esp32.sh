@@ -30,9 +30,11 @@ done
 [ -n "$PORT" ] || { echo "нужен --port (см. ls /dev/tty.usbserial-* или ls /dev/ttyUSB*)" >&2; exit 2; }
 
 case "$CHIP" in
-  esp32)     BIN_NAME="ESP32_GENERIC" ;;
-  esp32c3)   BIN_NAME="ESP32_GENERIC_C3" ;;
-  esp32s3)   BIN_NAME="ESP32_GENERIC_S3" ;;
+  # у классического ESP32 образ MicroPython кладётся на 0x1000,
+  # у C3/S3 — на 0x0 (иначе плата уходит в цикл "invalid header")
+  esp32)     BIN_NAME="ESP32_GENERIC";    FLASH_ADDR="0x1000" ;;
+  esp32c3)   BIN_NAME="ESP32_GENERIC_C3"; FLASH_ADDR="0x0" ;;
+  esp32s3)   BIN_NAME="ESP32_GENERIC_S3"; FLASH_ADDR="0x0" ;;
   *) echo "поддерживаются esp32, esp32c3, esp32s3" >&2; exit 2 ;;
 esac
 
@@ -52,7 +54,7 @@ if [ "$FILES_ONLY" = "0" ]; then
   fi
   echo "==> стираю flash и заливаю MicroPython (это ~30 секунд)"
   esptool.py --chip "$CHIP" --port "$PORT" erase_flash
-  esptool.py --chip "$CHIP" --port "$PORT" --baud 460800 write_flash -z 0 "$BIN"
+  esptool.py --chip "$CHIP" --port "$PORT" --baud 460800 write_flash -z "$FLASH_ADDR" "$BIN"
   sleep 2
 fi
 

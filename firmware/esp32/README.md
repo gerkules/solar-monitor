@@ -56,7 +56,9 @@ mpremote connect /dev/tty.usbserial-0001 reset
 ```bash
 pip install esptool mpremote
 esptool.py --chip esp32c3 --port /dev/tty.usbserial-0001 erase_flash
-esptool.py --chip esp32c3 --port /dev/tty.usbserial-0001 write_flash -z 0 ESP32_GENERIC_C3-*.bin
+# адрес зависит от чипа: ESP32 (классический) — 0x1000, ESP32-C3/S3 — 0x0
+esptool.py --chip esp32   --port /dev/tty.usbserial-0001 write_flash -z 0x1000 ESP32_GENERIC-*.bin
+esptool.py --chip esp32c3 --port /dev/tty.usbserial-0001 write_flash -z 0     ESP32_GENERIC_C3-*.bin
 mpremote connect /dev/tty.usbserial-0001 fs mkdir :vendor
 mpremote connect /dev/tty.usbserial-0001 fs cp main.py bus.py pi30.py poller.py \
         sethandler.py history.py mqttpub.py web.py config.example.json :/
