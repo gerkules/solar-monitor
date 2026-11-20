@@ -60,6 +60,11 @@ install -m 644 "$SRC/deploy/pi/60-voltronic-hid.rules" /etc/udev/rules.d/60-volt
 udevadm control --reload-rules || true
 udevadm trigger --subsystem-match=hidraw || true
 
+# Файрвол: Pi живёт в общем сегменте «провайдера», наружу только брокер и панель
+# и только для наших адресов (см. deploy/pi/nftables.conf).
+install -m 644 "$SRC/deploy/pi/nftables.conf" /etc/nftables.conf
+systemctl enable --now nftables || echo "      nftables не встал — проверьте /etc/nftables.conf"
+
 # Helper для доп. инверторов (solar-collector@<site>.service): UI добавляет
 # второй инвертор, а start/stop/enable требует root. Правило — только на скрипт.
 install -m 755 "$SRC/deploy/pi/inverter-ctl" /usr/local/lib/solar-monitor/inverter-ctl
