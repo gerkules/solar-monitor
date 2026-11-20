@@ -80,6 +80,24 @@ def wifi_connect(cfg):
     if sta.isconnected():
         print("wifi ok:", sta.ifconfig()[0])
         return True
+    # Стек Wi-Fi на ESP32 иногда «зависает»: scan пустой, connect возвращает
+    # Wifi Internal Error. Полная переинициализация интерфейса это лечит.
+    print("wifi: не удалось подключиться — переинициализирую интерфейс")
+    try:
+        sta.active(False)
+        time.sleep(1.5)
+        sta.active(True)
+        time.sleep(1.5)
+        sta.connect(w["ssid"], w.get("password", ""))
+        for _ in range(30):
+            if sta.isconnected():
+                break
+            time.sleep(0.5)
+    except Exception as ex:                       # noqa: BLE001
+        print("wifi: переинициализация не помогла:", ex)
+    if sta.isconnected():
+        print("wifi ok после переинициализации:", sta.ifconfig()[0])
+        return True
     print("wifi: не удалось подключиться")
     return False
 
@@ -175,18 +193,31 @@ async def main():
     app = web.App(cfg, poller, history, publisher)
 
     wdt = None
-    try:
-        wdt = machine.WDT(timeout=30000)
-    except Exception:
-        pass
+    wdt_s = int(cfg.get("wdt_s", 0) or 0)
+    if wdt_s > 0:
+        try:
+            wdt = machine.WDT(timeout=wdt_s * 1000)
+        except Exception:
+            pass
 
     print("solar-monitor firmware: старт, свободно %d байт" % gc.mem_free())
+    # Каждая задача обёрнута: падение одной (Wi-Fi, MQTT, HTTP) не останавливает
+    # остальные — иначе устройство замолкает целиком до перезагрузки.
+    async def guarded(name, coro, pause_s=5):
+        while True:
+            try:
+                await coro
+                print("%s: завершилась, перезапуск" % name)
+            except Exception as ex:               # noqa: BLE001
+                print("%s: ошибка %r" % (name, ex))
+            await asyncio.sleep(pause_s)
+
     await asyncio.gather(
-        poll_task(poller, wdt, int(cfg.get("poll_fast_s", 2))),
-        mqtt_task(publisher),
-        history_task(poller, history),
-        wifi_task(cfg),
-        app.run(),
+        guarded("poll", poll_task(poller, wdt, int(cfg.get("poll_fast_s", 2)))),
+        guarded("mqtt", mqtt_task(publisher)),
+        guarded("history", history_task(poller, history)),
+        guarded("wifi", wifi_task(cfg)),
+        guarded("http", app.run()),
     )
 
 

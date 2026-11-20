@@ -175,7 +175,16 @@ class App:
         for name, value in extra.items():
             head += "%s: %s\r\n" % (name, value)
         await writer.awrite((head + "\r\n").encode())
-        await writer.awrite(data)
+        # Крупные ответы (index.html ~16 КБ) отдаём кусками и уступаем цикл:
+        # один awrite такого размера переполняет буфер сокета на ESP32, и запрос
+        # повисает до таймаута браузера.
+        step = 1024
+        if len(data) <= step:
+            await writer.awrite(data)
+            return
+        for off in range(0, len(data), step):
+            await writer.awrite(data[off:off + step])
+            await _yield_once()
 
     async def run(self):
         await asyncio.start_server(self.handle, "0.0.0.0", self.port)
