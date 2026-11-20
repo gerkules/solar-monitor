@@ -103,6 +103,41 @@ MQTT_PASS = os.getenv("MQTT_PASS") or None
 MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", f"solar-monitor-{SITE}")
 MQTT_TLS = _bool("MQTT_TLS", False)
 
+# Правки из UI (страница «MQTT»): значения перекрывают .env. Файл читается при
+# импорте конфига, поэтому после сохранения процесс перезапускается.
+MQTT_OVERRIDE_FILE = os.getenv("MQTT_OVERRIDE_FILE", "/data/mqtt.json")
+
+
+def _apply_mqtt_override() -> None:
+    global MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_TLS, MQTT_PREFIX, \
+        MQTT_CLIENT_ID, SITE_ROOT, HA_DISCOVERY
+    try:
+        with open(MQTT_OVERRIDE_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    if data.get("host"):
+        MQTT_HOST = str(data["host"])
+    if data.get("port"):
+        MQTT_PORT = int(data["port"])
+    if "user" in data:
+        MQTT_USER = data.get("user") or None
+    if "password" in data:
+        MQTT_PASS = data.get("password") or None
+    if "tls" in data:
+        MQTT_TLS = bool(data["tls"])
+    if data.get("prefix"):
+        MQTT_PREFIX = str(data["prefix"]).rstrip("/")
+        SITE_ROOT = "/".join(MQTT_PREFIX.split("/")[:-1]) or "solar"
+    if "discovery" in data:
+        HA_DISCOVERY = bool(data["discovery"])
+    MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", f"solar-monitor-{SITE}")
+
+
+_apply_mqtt_override()
+
 # ---- influxdb 2.x -----------------------------------------------------------
 # "2" = InfluxDB 2.x (token + Flux), "1.8" = InfluxDB 1.x (InfluxQL, no token).
 # 1.8 is what SolarAssistant itself ships and it is the only one that runs on

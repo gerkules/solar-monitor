@@ -168,6 +168,7 @@
       <a href="#/battery" data-view="battery" data-i18n="sub.battery">АКБ</a>
       <a href="#/connection" data-view="connection" data-i18n="sub.connection">Подключение</a>
       <a href="#/inverters" data-view="inverters" data-i18n="sub.inverters">Инверторы</a>
+      <a href="#/mqtt" data-view="mqtt" data-i18n="sub.mqtt">MQTT</a>
       <a href="#/wifi" data-view="wifi" data-i18n="sub.wifi">Wi-Fi</a>
       <a href="#/automation" data-view="automation" data-i18n="sub.automation">Автоматизация</a>
       <a href="#/codes" data-view="codes" data-i18n="sub.codes">Коды</a>
@@ -529,6 +530,76 @@
           <span class="msg" id="inv2-msg"></span>
         </div>
         <p class="muted" id="inv2-hint" style="margin-top:8px"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= MQTT ======================= -->
+  <section class="view" id="view-mqtt">
+    <div class="card">
+      <h3 data-i18n="mq.own_title">Куда публикует этот коллектор</h3>
+      <div class="body">
+        <div class="statuses" id="mq-own-status"></div>
+        <div class="form-grid">
+          <div><label data-i18n="mq.host">Брокер (хост)</label><input id="mq-host" placeholder="192.168.1.220"></div>
+          <div><label data-i18n="mq.port">Порт</label><input id="mq-port" type="number" value="1883"></div>
+          <div><label data-i18n="mq.user">Логин</label><input id="mq-user" autocomplete="off"></div>
+          <div><label data-i18n="mq.password">Пароль</label>
+            <input id="mq-pass" type="password" autocomplete="new-password" data-i18n-ph="mq.pass_keep"></div>
+          <div><label data-i18n="mq.prefix">Префикс топиков</label><input id="mq-prefix" placeholder="solar/pi"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="mq-tls"> TLS</label>
+        <label class="check"><input type="checkbox" id="mq-discovery"> HA discovery</label>
+        <div class="form-actions">
+          <button class="primary" id="mq-own-save" data-i18n="mq.save_restart">Сохранить и перезапустить</button>
+          <span class="msg" id="mq-own-msg"></span>
+        </div>
+        <p class="muted" data-i18n="mq.own_note">Параметры хранятся в файле-оверрайде и применяются при старте: после сохранения коллектор перезапускается (данные не теряются).</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 data-i18n="mq.broker_title">Брокер на этом хосте</h3>
+      <div class="body">
+        <div class="statuses" id="mq-broker-status"></div>
+        <div id="mq-broker-note" class="muted" style="display:none"></div>
+        <div class="form-actions" id="mq-broker-actions">
+          <label class="check"><input type="checkbox" id="mq-anon"> <span data-i18n="mq.anon">Анонимный доступ</span></label>
+          <button class="pill" id="mq-broker-restart" data-i18n="mq.restart">Перезапустить брокер</button>
+          <span class="msg" id="mq-broker-msg"></span>
+        </div>
+        <div id="mq-users" class="inv-row" style="display:none">
+          <b data-i18n="mq.users">Пользователи</b>
+          <div id="mq-users-list" class="muted"></div>
+          <input id="mq-new-user" data-i18n-ph="mq.new_user" placeholder="логин">
+          <input id="mq-new-pass" type="password" data-i18n-ph="mq.new_pass" placeholder="пароль (мин. 6)">
+          <button class="pill" id="mq-user-add" data-i18n="mq.user_add">Добавить</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 data-i18n="mq.bridges_title">Подключения к другим брокерам (мосты)</h3>
+      <div class="body">
+        <div id="mq-bridges"></div>
+        <div class="form-grid">
+          <div><label data-i18n="mq.br_name">Имя</label><input id="mq-br-name" placeholder="home"></div>
+          <div><label data-i18n="mq.br_addr">Адрес host:port</label><input id="mq-br-addr" placeholder="192.168.1.224:1883"></div>
+          <div><label data-i18n="mq.br_user">Логин</label><input id="mq-br-user" autocomplete="off"></div>
+          <div><label data-i18n="mq.br_pass">Пароль</label><input id="mq-br-pass" type="password" autocomplete="new-password"></div>
+          <div><label data-i18n="mq.br_topic">Фильтр топиков</label><input id="mq-br-topic" value="solar/#"></div>
+          <div><label data-i18n="mq.br_dir">Направление</label>
+            <select id="mq-br-dir">
+              <option value="out" data-i18n="mq.dir_out">out — отсюда туда</option>
+              <option value="in" data-i18n="mq.dir_in">in — оттуда сюда</option>
+              <option value="both" data-i18n="mq.dir_both">both — в обе стороны</option>
+            </select></div>
+        </div>
+        <div class="form-actions">
+          <button class="primary" id="mq-br-save" data-i18n="mq.br_save">Сохранить мост</button>
+          <span class="msg" id="mq-br-msg"></span>
+        </div>
+        <p class="muted" data-i18n="mq.br_note">Мост в обе стороны на одни и те же топики даёт петлю — для обмена «дом ↔ офис» держите направление с одной стороны out, с другой in.</p>
       </div>
     </div>
   </section>

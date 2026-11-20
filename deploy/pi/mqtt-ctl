@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""solar-monitor MQTT helper — единственная привилегированная точка для mosquitto.
+
+Ставится в /usr/local/lib/solar-monitor/mqtt-ctl и вызывается сервисом solar
+через sudoers-nopasswd (только этот файл).
+
+Зачем: коллектору нужно управлять локальным брокером (слушатель, анонимный
+доступ, пользователи) и мостами к другим брокерам, но root сервису не даём.
+Здесь только эти операции, все имена/адреса валидируются.
+
+Команды (все печатают JSON в stdout):
+  status                        состояние брокера: active/ports/clients/anonymous/users
+  broker-anonymous on|off       переключить анонимный доступ (и парольфайл, если он есть)
+  broker-user-add <login> <pw>  добавить/сменить пользователя брокера
+  broker-user-del <login>       удалить пользователя
+  bridge-list                   список файлов мостов (имя, адрес, топик, направление)
+  bridge-save <name>            сохранить конфиг моста из stdin и перезапустить брокер
+  bridge-delete <name>          удалить мост
+  restart                       перезапустить брокер
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+CONF_DIR = "/etc/mosquitto/conf.d"
+MAIN_CONF = "/etc/mosquitto/mosquitto.conf"
+PASSWD = "/etc/mosquitto/passwd"
+# имя с zz- специально: mosquitto читает conf.d по алфавиту, и наш файл
+# должен быть последним, иначе allow_anonymous из local.conf перекроет наш
+BROKER_CONF = os.path.join(CONF_DIR, "zz-broker-ui.conf")
+BRIDGE_PREFIX = "bridge-"
+SERVICE = "mosquitto"
+
+NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,23}$")
+USER_RE = re.compile(r"^[A-Za-z0-9_\-\.]{1,32}$")
+#: директивы, которые разрешено писать в конфиг моста (остальное — отказ)
+ALLOWED = {
+    "connection", "address", "topic", "remote_username", "remote_password",
+    "remote_clientid", "cleansession", "try_private", "notifications",
+    "restart_timeout", "keepalive_interval", "start_type", "bridge_protocol_version",
+    "local_clientid", "local_username", "local_password", "#",
+}
+
+
+def out(data: dict, code: int = 0) -> None:
+    print(json.dumps(data, ensure_ascii=False))
+    sys.exit(code)
+
+
+def fail(msg: str, code: int = 1) -> None:
+    out({"error": msg}, code)
+
+
+def run(cmd: list[str], timeout: float = 30.0) -> tuple[int, str]:
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as ex:
+        return 1, repr(ex)
+    return proc.returncode, (proc.stdout or proc.stderr or "").strip()
+
+
+def restart_broker() -> tuple[int, str]:
+    rc, txt = run(["systemctl", "restart", SERVICE])
+    if rc != 0:
+        return rc, txt
+    # проверяем, что брокер действительно поднялся: иначе откатывать нечего, но
+    # пользователю нужен честный ответ
+    rc2, state = run(["systemctl", "is-active", SERVICE])
+    return rc2, state or txt
+
+
+def users() -> list[str]:
+    try:
+        with open(PASSWD, encoding="utf-8") as f:
+            return sorted({line.split(":", 1)[0] for line in f if ":" in line})
+    except OSError:
+        return []
+
+
+def anonymous_on() -> bool:
+    """Анонимный доступ включён? mosquitto читает conf.d по алфавиту, последнее
+    слово — за последним файлом, поэтому смотрим все конфиги по порядку."""
+    files: list[str] = []
+    try:
+        files = [os.path.join(CONF_DIR, n) for n in sorted(os.listdir(CONF_DIR))
+                 if n.endswith(".conf")]
+    except OSError:
+        files = []
+    files.append(MAIN_CONF)
+    value = False
+    for path in files:
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#") \
+                            and stripped.startswith("allow_anonymous"):
+                        value = stripped.split(None, 1)[-1].strip() in ("true", "1")
+        except OSError:
+            continue
+    return value
+
+
+def write_atomic(path: str, text: str, mode: int = 0o640) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, mode)
+    try:
+        import grp
+        import pwd
+        os.chown(tmp, pwd.getpwnam("mosquitto").pw_uid, grp.getgrnam("mosquitto").gr_gid)
+    except (KeyError, OSError):
+        pass
+    os.replace(tmp, path)
+
+
+def cmd_status() -> None:
+    rc, active = run(["systemctl", "is-active", SERVICE], timeout=10)
+    rc2, sockets = run(["ss", "-lnt"], timeout=10)
+    listen = []
+    for line in (sockets or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[3].endswith(":1883"):
+            listen.append(parts[3])
+    rc3, established = run(["ss", "-tn", "state", "established"], timeout=10)
+    clients = sum(1 for line in (established or "").splitlines()
+                  if re.search(r":1883\s", line))
+    conf_dir_ok = os.path.isdir(CONF_DIR)
+    out({"active": active.strip() == "active", "state": active.strip(),
+         "listen": sorted(set(listen)), "clients": clients,
+         "anonymous": anonymous_on(), "users": users(),
+         "conf_dir": CONF_DIR, "conf_dir_ok": conf_dir_ok,
+         "passwd": PASSWD if os.path.exists(PASSWD) else ""})
+
+
+def listener_defined_elsewhere() -> bool:
+    """Есть ли listener в других конфигах: два `listener` на один порт — фатально."""
+    try:
+        names = sorted(os.listdir(CONF_DIR))
+    except OSError:
+        return False
+    for name in names:
+        if not name.endswith(".conf"):
+            continue
+        path = os.path.join(CONF_DIR, name)
+        if os.path.abspath(path) == os.path.abspath(BROKER_CONF):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#") \
+                            and stripped.startswith("listener"):
+                        return True
+        except OSError:
+            continue
+    return False
+
+
+def write_broker_conf(on: bool) -> None:
+    lines = ["# создано solar-monitor (страница «MQTT»): права доступа брокера",
+             f"allow_anonymous {'true' if on else 'false'}"]
+    if os.path.exists(PASSWD) and users():
+        lines.append(f"password_file {PASSWD}")
+    if not listener_defined_elsewhere():
+        lines.append("listener 1883 0.0.0.0")
+    write_atomic(BROKER_CONF, "\n".join(lines) + "\n")
+
+
+def cmd_broker_anonymous(arg: str) -> None:
+    on = arg in ("on", "1", "true")
+    if not os.path.isdir(CONF_DIR):
+        fail(f"нет каталога {CONF_DIR}")
+    write_broker_conf(on)
+    rc, txt = restart_broker()
+    if rc != 0:
+        fail(f"брокер не перезапустился: {txt}")
+    out({"ok": True, "anonymous": on, "state": txt})
+
+
+def _passwd_tool() -> str:
+    for path in ("/usr/bin/mosquitto_passwd", "/usr/sbin/mosquitto_passwd"):
+        if os.path.exists(path):
+            return path
+    fail("не найден mosquitto_passwd (apt install mosquitto)")
+
+
+def cmd_user_add(login: str, password: str) -> None:
+    if not USER_RE.match(login):
+        fail("логин: буквы/цифры/_/-/. до 32 символов")
+    if len(password) < 6:
+        fail("пароль короче 6 символов")
+    args = [_passwd_tool()]
+    if not os.path.exists(PASSWD):
+        args.append("-c")           # первый пользователь: создаём файл
+    rc, txt = run([*args, "-b", PASSWD, login, password])
+    if rc != 0:
+        fail(f"не удалось сохранить пользователя: {txt}")
+    os.chmod(PASSWD, 0o640)
+    try:
+        import grp
+        import pwd
+        os.chown(PASSWD, pwd.getpwnam("mosquitto").pw_uid,
+                 grp.getgrnam("mosquitto").gr_gid)
+    except (KeyError, OSError):
+        pass
+    # парольфайл должен быть подключён в конфиге (анонимность не меняем)
+    write_broker_conf(anonymous_on())
+    rc, txt = restart_broker()
+    if rc != 0:
+        fail(f"пользователь сохранён, но брокер не перезапустился: {txt}")
+    out({"ok": True, "user": login, "users": users(), "state": txt})
+
+
+def cmd_user_del(login: str) -> None:
+    if not USER_RE.match(login):
+        fail("недопустимый логин")
+    rc, txt = run([_passwd_tool(), "-D", PASSWD, login])
+    if rc != 0:
+        fail(f"не удалось удалить пользователя: {txt}")
+    restart_broker()
+    out({"ok": True, "user": login, "users": users()})
+
+
+def _bridge_path(name: str) -> str:
+    return os.path.join(CONF_DIR, f"{BRIDGE_PREFIX}{name}.conf")
+
+
+def cmd_bridge_list() -> None:
+    items = []
+    try:
+        names = sorted(os.listdir(CONF_DIR))
+    except OSError:
+        names = []
+    for fname in names:
+        if not (fname.startswith(BRIDGE_PREFIX) and fname.endswith(".conf")):
+            continue
+        path = os.path.join(CONF_DIR, fname)
+        item = {"name": fname[len(BRIDGE_PREFIX):-5], "file": path,
+                "address": "", "topics": [], "username": ""}
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    key, _, rest = line.partition(" ")
+                    rest = rest.strip()
+                    if key == "address":
+                        item["address"] = rest
+                    elif key == "remote_username":
+                        item["username"] = rest
+                    elif key == "topic":
+                        item["topics"].append(rest)
+        except OSError:
+            continue
+        items.append(item)
+    out({"bridges": items})
+
+
+def cmd_bridge_save(name: str) -> None:
+    if not NAME_RE.match(name):
+        fail("недопустимое имя моста")
+    text = sys.stdin.read()
+    if not text.strip():
+        fail("пустой конфиг моста")
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            lines.append(stripped)
+            continue
+        key = stripped.split(None, 1)[0]
+        if key not in ALLOWED:
+            fail(f"запрещённая директива моста: {key}")
+        lines.append(stripped)
+    if not os.path.isdir(CONF_DIR):
+        fail(f"нет каталога {CONF_DIR}")
+    path = _bridge_path(name)
+    write_atomic(path, "\n".join(lines) + "\n")
+    rc, txt = restart_broker()
+    if rc != 0:
+        try:
+            os.remove(path)          # не оставляем брокер неработоспособным
+        except OSError:
+            pass
+        restart_broker()
+        fail(f"брокер не перезапустился с этим мостом: {txt}")
+    out({"ok": True, "name": name, "file": path, "state": txt})
+
+
+def cmd_bridge_delete(name: str) -> None:
+    if not NAME_RE.match(name):
+        fail("недопустимое имя моста")
+    path = _bridge_path(name)
+    if not os.path.exists(path):
+        fail(f"моста {name!r} нет")
+    os.remove(path)
+    rc, txt = restart_broker()
+    if rc != 0:
+        fail(f"мост удалён, но брокер не перезапустился: {txt}")
+    out({"ok": True, "name": name, "state": txt})
+
+
+def cmd_restart() -> None:
+    rc, txt = restart_broker()
+    if rc != 0:
+        fail(f"брокер не перезапустился: {txt}")
+    out({"ok": True, "state": txt})
+
+
+def main(argv: list[str]) -> None:
+    if not argv:
+        fail("usage: mqtt-ctl <status|broker-anonymous|broker-user-add|broker-user-del|"
+             "bridge-list|bridge-save|bridge-delete|restart> [...]")
+    cmd, *args = argv
+    if cmd == "status":
+        cmd_status()
+    elif cmd == "broker-anonymous":
+        cmd_broker_anonymous(args[0] if args else "off")
+    elif cmd == "broker-user-add" and len(args) == 2:
+        cmd_user_add(args[0], args[1])
+    elif cmd == "broker-user-del" and len(args) == 1:
+        cmd_user_del(args[0])
+    elif cmd == "bridge-list":
+        cmd_bridge_list()
+    elif cmd == "bridge-save" and len(args) == 1:
+        cmd_bridge_save(args[0])
+    elif cmd == "bridge-delete" and len(args) == 1:
+        cmd_bridge_delete(args[0])
+    elif cmd == "restart":
+        cmd_restart()
+    else:
+        fail(f"неизвестная команда {cmd!r}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -63,9 +63,18 @@ udevadm trigger --subsystem-match=hidraw || true
 # Helper для доп. инверторов (solar-collector@<site>.service): UI добавляет
 # второй инвертор, а start/stop/enable требует root. Правило — только на скрипт.
 install -m 755 "$SRC/deploy/pi/inverter-ctl" /usr/local/lib/solar-monitor/inverter-ctl
+install -m 755 "$SRC/deploy/pi/mqtt-ctl" /usr/local/lib/solar-monitor/mqtt-ctl
 install -m 755 "$SRC/deploy/pi/inverter-ports" /usr/local/bin/inverter-ports
 printf 'solar ALL=(root) NOPASSWD: /usr/local/lib/solar-monitor/inverter-ctl\n' \
     > /etc/sudoers.d/solar-inverters
+# Брокер и мосты MQTT из UI — тоже только через узкий helper
+printf 'solar ALL=(root) NOPASSWD: /usr/local/lib/solar-monitor/mqtt-ctl\n' \
+    > /etc/sudoers.d/solar-mqtt
+chmod 440 /etc/sudoers.d/solar-mqtt
+visudo -cf /etc/sudoers.d/solar-mqtt >/dev/null || {
+    echo "ОШИБКА: /etc/sudoers.d/solar-mqtt не прошёл проверку"
+    rm -f /etc/sudoers.d/solar-mqtt; exit 1;
+}
 chmod 440 /etc/sudoers.d/solar-inverters
 visudo -cf /etc/sudoers.d/solar-inverters >/dev/null || {
     echo "ОШИБКА: /etc/sudoers.d/solar-inverters не прошёл проверку"
@@ -83,4 +92,5 @@ echo
 echo "USB-RS232: адаптер появится как /dev/ttyUSB0 (драйверы ch341/pl2303/ftdi/cp210x уже в ядре)."
 echo "Проверка: ls -l /dev/serial/by-id/ ; затем в UI «Подключение» -> «Проверить связь»."
 echo "Wi-Fi: страница «Wi-Fi» в UI (helper: /usr/local/lib/solar-monitor/wifi-helper)."
+echo "MQTT (брокер, мосты, адрес публикации): страница «MQTT» в UI."
 echo "Второй инвертор: страница «Инверторы» в UI (unit: solar-collector@<id>.service, конфиги /data/inverters)."

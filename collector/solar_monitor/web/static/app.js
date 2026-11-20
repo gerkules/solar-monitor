@@ -1747,8 +1747,159 @@ async function inv2Action(site, op) {
   loadInverters();
 }
 
+/* ------------------------------------------------------------------- MQTT */
+let MQTTDATA = null;
+
+async function loadMqtt() {
+  const msg = $('mq-own-msg');
+  let d;
+  try {
+    const r = await fetch(api('/api/v1/mqtt'));
+    d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  } catch (e) {
+    $('mq-own-status').innerHTML = '';
+    $('mq-bridges').innerHTML = `<div class="msg err">✗ ${esc(String(e))}</div>`;
+    if (msg) { msg.className = 'msg err'; msg.textContent = '✗ ' + e; }
+    return;
+  }
+  MQTTDATA = d;
+  renderMqtt();
+}
+
+function renderMqtt() {
+  const d = MQTTDATA || {};
+  const own = d.own || {};
+
+  // --- куда публикуем
+  $('mq-own-status').innerHTML = [
+    status('bolt', t('mq.connected'), d.connected === null ? '—' : (d.connected ? t('mq.yes') : t('mq.no')),
+      '', d.connected ? 'green' : 'red'),
+    status('inverter', t('mq.broker'), esc(`${own.host || '—'}:${own.port || ''}`), ''),
+    status('clock', t('mq.prefix'), esc(own.prefix || '—'), ''),
+    status('alert', t('mq.source'), own.overridden ? t('mq.from_ui') : t('mq.from_env'), ''),
+  ].join('');
+  $('mq-host').value = own.host || '';
+  $('mq-port').value = own.port || 1883;
+  $('mq-user').value = own.user || '';
+  $('mq-pass').value = '';
+  $('mq-prefix').value = own.prefix || '';
+  $('mq-tls').checked = !!own.tls;
+  $('mq-discovery').checked = !!own.discovery;
+
+  // --- брокер на хосте
+  const b = d.broker || {};
+  const native = !!d.native;
+  $('mq-broker-actions').style.display = native ? '' : 'none';
+  const note = $('mq-broker-note');
+  note.style.display = native ? 'none' : '';
+  if (!native) {
+    note.textContent = t('mq.no_native', { helper: d.helper || '' });
+  }
+  if (native && b && !b.error) {
+    $('mq-broker-status').innerHTML = [
+      status('bolt', t('mq.service'), esc(b.state || '—'), '', b.active ? 'green' : 'red'),
+      status('inverter', t('mq.listen'), esc((b.listen || []).join(', ') || '—'), ''),
+      status('clock', t('mq.clients'), String(b.clients ?? '—'), ''),
+      status('alert', t('mq.anon'), b.anonymous ? t('mq.yes') : t('mq.no'), '', b.anonymous ? 'red' : 'green'),
+    ].join('');
+    $('mq-anon').checked = !!b.anonymous;
+    $('mq-users').style.display = '';
+    const users = b.users || [];
+    $('mq-users-list').innerHTML = users.length
+      ? users.map((u) => `<span class="pill">${esc(u)} <button data-mq-user="${esc(u)}" title="удалить">✕</button></span>`).join(' ')
+      : '—';
+  } else if (native) {
+    $('mq-broker-status').innerHTML = `<div class="msg err">✗ ${esc(b.error || 'брокер недоступен')}</div>`;
+  }
+
+  // --- мосты
+  const br = d.bridges || [];
+  $('mq-bridges').innerHTML = native
+    ? (br.length ? br.map((x) => `
+        <div class="inv-row" data-bridge="${esc(x.name)}">
+          <b>${esc(x.name)}</b>
+          <span class="muted">${esc(x.address || '—')} · ${esc((x.topics || []).join(', ') || '—')}${x.username ? ' · ' + esc(x.username) : ''}</span>
+          <button class="pill danger" data-mq-bridge-del="${esc(x.name)}">✕ ${t('mq.br_del')}</button>
+        </div>`).join('')
+      : `<p class="muted">${esc(t('mq.no_bridges'))}</p>`)
+    : `<p class="muted">${esc(t('mq.no_native', { helper: d.helper || '' }))}</p>`;
+}
+
+function mqOwnBody() {
+  const body = {
+    host: $('mq-host').value.trim(),
+    port: Number($('mq-port').value) || 1883,
+    user: $('mq-user').value.trim(),
+    prefix: $('mq-prefix').value.trim(),
+    tls: $('mq-tls').checked,
+    discovery: $('mq-discovery').checked,
+  };
+  const pass = $('mq-pass').value;
+  if (pass) body.password = pass;          // пусто = не менять
+  return body;
+}
+
+async function saveMqttOwn() {
+  const msg = $('mq-own-msg');
+  if (!window.confirm(t('mq.confirm_restart'))) return;
+  msg.className = 'msg'; msg.textContent = t('mq.saving');
+  const r = await fetch(api('/api/v1/mqtt/own'), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mqOwnBody()),
+  });
+  const d = await r.json();
+  msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  msg.textContent = r.ok ? t('mq.saved_restart') : '✗ ' + (d.error || r.status);
+  if (r.ok) setTimeout(pollAfterRestart, 4000);
+}
+
+async function mqBrokerOp(op, payload) {
+  const msg = $('mq-broker-msg');
+  msg.className = 'msg'; msg.textContent = '…';
+  const r = await fetch(api(`/api/v1/mqtt/broker/${op}`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+  const d = await r.json();
+  msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  msg.textContent = (r.ok ? '✓ ' : '✗ ') + (d.error || d.state || 'ok');
+  if (r.ok) loadMqtt();
+}
+
+async function mqBridgeSave() {
+  const msg = $('mq-br-msg');
+  msg.className = 'msg'; msg.textContent = '…';
+  const body = {
+    name: $('mq-br-name').value.trim().toLowerCase(),
+    address: $('mq-br-addr').value.trim(),
+    username: $('mq-br-user').value.trim(),
+    pattern: $('mq-br-topic').value.trim(),
+    direction: $('mq-br-dir').value,
+  };
+  if ($('mq-br-pass').value) body.password = $('mq-br-pass').value;
+  const r = await fetch(api('/api/v1/mqtt/bridge'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  msg.textContent = (r.ok ? '✓ ' + d.name : '✗ ' + (d.error || r.status));
+  if (r.ok) { $('mq-br-pass').value = ''; loadMqtt(); }
+}
+
+async function mqBridgeDelete(name) {
+  if (!window.confirm(t('mq.br_confirm_del', { name }))) return;
+  const msg = $('mq-br-msg');
+  const r = await fetch(api(`/api/v1/mqtt/bridge/${encodeURIComponent(name)}`), { method: 'DELETE' });
+  const d = await r.json();
+  msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  msg.textContent = (r.ok ? '✓ ' : '✗ ') + (d.error || name);
+  loadMqtt();
+}
+
 /* ---------------------------------------------------------------- routing */
-const CONFIG_VIEWS = ['inverter', 'battery', 'connection', 'inverters', 'wifi', 'automation', 'codes', 'settings'];
+const CONFIG_VIEWS = ['inverter', 'battery', 'connection', 'inverters', 'mqtt', 'wifi', 'automation', 'codes', 'settings'];
 
 function show(v) {
   view = v;
@@ -1771,6 +1922,7 @@ function show(v) {
   if (v === 'codes') loadCodes();
   if (v === 'connection') loadConnection();
   if (v === 'inverters') loadInverters();
+  if (v === 'mqtt') loadMqtt();
   if (v === 'wifi') loadWifi();
 }
 
@@ -1846,6 +1998,7 @@ function onLanguageChanged() {
   if (view === 'settings') loadSettings();
   if (view === 'connection') loadConnection();
   if (view === 'inverters') loadInverters();
+  if (view === 'mqtt') loadMqtt();
   if (view === 'codes') { CODES = null; loadCodes(); }
   if (view === 'automation') loadAutomation();
   if (view === 'battery') { loadBattery(); renderBattery(); }
@@ -1938,6 +2091,32 @@ async function boot() {
   }));
   $('energy-reload').addEventListener('click', loadEnergy);
   $('codes-filter').addEventListener('input', loadCodes);
+  if ($('mq-own-save')) {
+    $('mq-own-save').addEventListener('click', saveMqttOwn);
+    $('mq-anon').addEventListener('change', () => mqBrokerOp('anonymous', { on: $('mq-anon').checked }));
+    $('mq-broker-restart').addEventListener('click', () => mqBrokerOp('restart'));
+    $('mq-user-add').addEventListener('click', () => {
+      const user = $('mq-new-user').value.trim();
+      const password = $('mq-new-pass').value;
+      if (!user || password.length < 6) return mqBrokerOp('user-add', { user: user || '?', password: 'short' });
+      mqBrokerOp('user-add', { user, password }).then(() => {
+        $('mq-new-user').value = ''; $('mq-new-pass').value = '';
+      });
+    });
+    $('mq-br-save').addEventListener('click', mqBridgeSave);
+    $('mq-broker-status').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-mq-user-del]');
+      if (btn) mqBrokerOp('user-del', { user: btn.dataset.mqUserDel });
+    });
+    $('mq-users-list').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-mq-user]');
+      if (btn) mqBrokerOp('user-del', { user: btn.dataset.mqUser });
+    });
+    $('mq-bridges').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-mq-bridge-del]');
+      if (btn) mqBridgeDelete(btn.dataset.mqBridgeDel);
+    });
+  }
   $('conn-mode').addEventListener('change', syncConnFields);
   if ($('inv2-mode')) {
     $('inv2-mode').addEventListener('change', syncInv2Fields);

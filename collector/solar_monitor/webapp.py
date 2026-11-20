@@ -625,6 +625,65 @@ def create_app(poller, notifier=None, rules=None, forecast_svc=None, sites=None,
         broker = getattr(poller, "mq", None)
         return conn_mod.probe(body, broker=broker)
 
+    # ---- MQTT: свой брокер, мосты, параметры публикации ----------------------
+    # Всё это раньше жило только в .env и конфигах mosquitto. Теперь — страница
+    # «MQTT»: нативное управление брокером/мостами через helper mqtt-ctl,
+    # а параметры публикации (хост/логин/префикс) — файл-оверрайд + перезапуск.
+    @app.get("/api/v1/mqtt")
+    def mqtt_get(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import mqttadmin
+        connected = None
+        pub = getattr(poller, "mq", None)
+        if pub is not None and hasattr(pub, "connected"):
+            connected = bool(pub.connected.is_set())
+        return mqttadmin.snapshot(connected=connected)
+
+    @app.put("/api/v1/mqtt/own")
+    async def mqtt_own_save(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import mqttadmin
+        try:
+            return mqttadmin.save_own(await request.json())
+        except mqttadmin.MqttError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+        except OSError as ex:
+            return JSONResponse({"error": f"файловая ошибка: {ex}"}, status_code=500)
+
+    @app.post("/api/v1/mqtt/broker/{op}")
+    async def mqtt_broker(op: str, request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import mqttadmin
+        if op not in ("anonymous", "restart", "user-add", "user-del"):
+            return JSONResponse({"error": f"неизвестная операция {op!r}"}, status_code=400)
+        try:
+            return mqttadmin.broker_action(op, await request.json())
+        except mqttadmin.MqttError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+
+    @app.post("/api/v1/mqtt/bridge")
+    async def mqtt_bridge_save(request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import mqttadmin
+        try:
+            return mqttadmin.bridge_save(await request.json())
+        except mqttadmin.MqttError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+
+    @app.delete("/api/v1/mqtt/bridge/{name}")
+    def mqtt_bridge_delete(name: str, request: Request):
+        if not _authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import mqttadmin
+        try:
+            return mqttadmin.bridge_delete(name)
+        except mqttadmin.MqttError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+
     # ---- несколько инверторов на одном хосте --------------------------------
     # Второй инвертор = свой процесс solar-collector@<site>.service со своим
     # SITE. Конфиги в INVERTERS_DIR, запуск — через helper inverter-ctl
