@@ -261,6 +261,36 @@ def _mode_fields(mode: str) -> tuple[str, ...]:
     return tuple(conn_mod.MODES[mode]["fields"])
 
 
+def free_hid_device(exclude: str | None = None) -> str:
+    """Первый hidraw-узел, который ещё не занят другим коллектором.
+
+    У инверторов Voltronic один и тот же VID:PID и SerialNumber=0, поэтому
+    «просто hidraw0» для второго инвертора означал бы два процесса на одном
+    устройстве: кадры читались бы наперегонки. Уже занятые узлы пропускаем.
+    """
+    used = {str(config.HID_DEVICE or "")}
+    for item in listing():
+        if item.get("site") == exclude:
+            continue
+        if item.get("mode") == "hid" and item.get("hid_device"):
+            used.add(str(item["hid_device"]))
+    try:
+        nodes = sorted((n for n in os.listdir("/dev") if n.startswith("hidraw")),
+                       key=lambda n: int(re.sub(r"\D", "", n) or 0))
+    except OSError:
+        return ""
+    for node in nodes:
+        path = os.path.join("/dev", node)
+        if path in used:
+            continue
+        # алиасы udev ведут на те же узлы — считаем их тоже занятыми
+        if any(os.path.realpath(p) == os.path.realpath(path)
+               for p in used if p.startswith("/dev/")):
+            continue
+        return path
+    return ""
+
+
 def normalize(payload: dict) -> dict:
     """Проверить данные из UI и привести к каноническому виду."""
     from . import connection as conn_mod
@@ -276,8 +306,12 @@ def normalize(payload: dict) -> dict:
     mode = str(payload.get("mode") or "").strip().lower()
     _mode_fields(mode)                       # валидация режима и его полей
     if mode == "hid" and not str(payload.get("hid_device") or "").strip():
-        # удобный дефолт: стабильное имя из udev-правила, если оно есть
-        payload = {**payload, "hid_device": config.HID_DEVICE}
+        free = free_hid_device(exclude=site)
+        if not free:
+            raise InverterError(
+                "не вижу свободного USB-HID инвертора: подключите его в другой "
+                "порт и укажите стабильное имя (/dev/inverter-usb2 … /dev/inverter-usb4)")
+        payload = {**payload, "hid_device": free}
 
     item = {
         "site": site,
@@ -304,6 +338,16 @@ def normalize(payload: dict) -> dict:
         item["hid_device"] = str(item.get("hid_device") or "").strip()
         if not item["hid_device"]:
             raise InverterError("для USB-HID нужен hidraw-узел")
+        taken = {str(config.HID_DEVICE or "")}
+        for other in listing():
+            if other.get("site") == item["site"]:
+                continue
+            if other.get("mode") == "hid" and other.get("hid_device"):
+                taken.add(str(other["hid_device"]))
+        if os.path.realpath(item["hid_device"]) in {os.path.realpath(p) for p in taken if p}:
+            raise InverterError(
+                f"{item['hid_device']} уже занят другим коллектором — у каждого "
+                "инвертора должен быть свой USB-узел")
     if mode == "mqtt":
         item["trans_topic"] = str(item.get("trans_topic") or "").strip() or "inverter/"
     return item

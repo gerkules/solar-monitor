@@ -54,9 +54,16 @@ visudo -cf /etc/sudoers.d/solar-wifi >/dev/null || {
     echo "ОШИБКА: /etc/sudoers.d/solar-wifi не прошёл проверку"; rm -f /etc/sudoers.d/solar-wifi; exit 1;
 }
 
+# USB-HID инвертор: стабильные имена по USB-порту (у Voltronic одинаковые
+# VID:PID и SerialNumber=0, поэтому второй инвертор различается только портом).
+install -m 644 "$SRC/deploy/pi/60-voltronic-hid.rules" /etc/udev/rules.d/60-voltronic-hid.rules
+udevadm control --reload-rules || true
+udevadm trigger --subsystem-match=hidraw || true
+
 # Helper для доп. инверторов (solar-collector@<site>.service): UI добавляет
 # второй инвертор, а start/stop/enable требует root. Правило — только на скрипт.
 install -m 755 "$SRC/deploy/pi/inverter-ctl" /usr/local/lib/solar-monitor/inverter-ctl
+install -m 755 "$SRC/deploy/pi/inverter-ports" /usr/local/bin/inverter-ports
 printf 'solar ALL=(root) NOPASSWD: /usr/local/lib/solar-monitor/inverter-ctl\n' \
     > /etc/sudoers.d/solar-inverters
 chmod 440 /etc/sudoers.d/solar-inverters

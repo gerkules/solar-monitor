@@ -95,10 +95,16 @@ class ConnectionStore:
 
 
 def list_ports() -> dict:
-    """Serial ports and hidraw nodes present in the container."""
+    """Serial ports and HID devices present in the host/container.
+
+    Для USB-HID инверторов сначала отдаём стабильные udev-алиасы
+    (`/dev/inverter-usbN`, `/dev/voltronic-inverter`): у Voltronic одинаковые
+    VID:PID, поэтому именно порт, а не hidrawN, различает два инвертора.
+    """
     serial = sorted(set(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
                         + glob.glob("/dev/serial/by-id/*")))
-    hid = sorted(glob.glob("/dev/hidraw*"))
+    aliases = sorted(glob.glob("/dev/inverter-usb*") + glob.glob("/dev/voltronic-inverter"))
+    hid = aliases + sorted(glob.glob("/dev/hidraw*"))
     return {"serial": serial, "hid": hid}
 
 

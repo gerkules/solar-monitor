@@ -67,8 +67,11 @@ class ValidationTests(InverterTestCase):
             inverters.normalize(self.payload(tcp_host=""))
         with self.assertRaises(inverters.InverterError):
             inverters.normalize(self.payload(mode="serial", serial_port=""))
-        # пустой hid_device подставляется из HID_DEVICE (udev-symlink или hidraw0)
-        self.assertTrue(inverters.normalize(self.payload(mode="hid", hid_device=""))["hid_device"])
+        # пустой hid_device => берётся СВОБОДНЫЙ узел, а не узел первого инвертора
+        with mock.patch.object(os, "listdir", dev_listdir(["hidraw0", "hidraw1"])):
+            picked = inverters.normalize(self.payload(mode="hid", hid_device=""))["hid_device"]
+        self.assertEqual(picked, "/dev/hidraw1")
+        self.assertNotEqual(picked, config.HID_DEVICE)
         with self.assertRaises(inverters.InverterError):
             inverters.normalize(self.payload(mode="telnet"))
 
@@ -315,3 +318,44 @@ class ProcessModeTests(InverterTestCase):
         with mock.patch.dict(os.environ, {"INVERTERS_MODE": "off"}):
             self.assertEqual(inverters.resolved_mode(), "off")
             self.assertFalse(inverters.supported())
+
+
+REAL_LISTDIR = os.listdir
+
+
+def dev_listdir(nodes):
+    """os.listdir-заглушка только для /dev (каталог конфигов остаётся настоящим)."""
+    def fake(path="/"):
+        if str(path).rstrip("/") == "/dev":
+            return list(nodes)
+        return REAL_LISTDIR(path)
+    return fake
+
+
+class HidDeviceTests(InverterTestCase):
+    """У двух инверторов Voltronic одинаковый VID:PID — узлы не должны совпадать."""
+
+    def test_free_node_is_picked(self):
+        with mock.patch.object(os, "listdir", dev_listdir(["hidraw0", "hidraw1", "null"])):
+            # hidraw0 занят первым инвертором (config.HID_DEVICE)
+            self.assertEqual(inverters.free_hid_device(), "/dev/hidraw1")
+
+    def test_pick_skips_nodes_of_other_inverters(self):
+        inverters.create(self.payload(site="second", mode="hid", hid_device="/dev/hidraw1"))
+        with mock.patch.object(os, "listdir", dev_listdir(["hidraw0", "hidraw1", "hidraw2"])):
+            self.assertEqual(inverters.free_hid_device(), "/dev/hidraw2")
+
+    def test_no_free_node_raises(self):
+        with mock.patch.object(os, "listdir", dev_listdir(["hidraw0"])):
+            with self.assertRaises(inverters.InverterError):
+                inverters.normalize(self.payload(mode="hid"))
+
+    def test_busy_node_is_rejected(self):
+        with mock.patch.object(os, "listdir", dev_listdir(["hidraw0", "hidraw1"])):
+            with self.assertRaises(inverters.InverterError):
+                inverters.normalize(self.payload(mode="hid", hid_device=config.HID_DEVICE))
+
+    def test_udev_alias_of_busy_node_is_rejected(self):
+        alias = os.path.realpath(config.HID_DEVICE)
+        with self.assertRaises(inverters.InverterError):
+            inverters.normalize(self.payload(mode="hid", hid_device=alias))

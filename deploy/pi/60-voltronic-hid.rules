@@ -1,0 +1,30 @@
+# Voltronic/Axpert USB-HID инвертор (0665:5161).
+#
+# У этих инверторов одинаковые VID:PID и SerialNumber=0, поэтому два устройства
+# различаются ТОЛЬКО по физическому USB-порту (KERNELS=="1-1.N" — порт N хаба).
+# Отсюда два набора имён:
+#   /dev/voltronic-inverter — текущий инвертор (историческое имя, его использует
+#                             основной коллектор: HID_DEVICE=/dev/voltronic-inverter)
+#   /dev/inverter-usb1..usb4 — стабильные имена по портам: второй инвертор
+#                             подключается в свободный порт и указывается в UI
+#                             как /dev/inverter-usb4 и т.п.
+#
+# Права: GROUP=dialout (коллектор работает под пользователем solar, состоит в dialout).
+
+ACTION=="remove", GOTO="solar_inverter_end"
+SUBSYSTEM!="hidraw", GOTO="solar_inverter_end"
+
+# --- доступ без root ---------------------------------------------------------
+ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", GROUP="dialout", MODE="0660"
+
+# --- имена по портам ---------------------------------------------------------
+KERNELS=="1-1.1", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="voltronic-inverter"
+KERNELS=="1-1.1", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="inverter-usb1"
+KERNELS=="1-1.2", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="inverter-usb2"
+KERNELS=="1-1.3", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="inverter-usb3"
+KERNELS=="1-1.4", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="inverter-usb4"
+KERNELS=="1-1.5", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="inverter-usb5"
+KERNELS=="1-1.6", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="inverter-usb6"
+KERNELS=="1-1.7", ATTRS{idVendor}=="0665", ATTRS{idProduct}=="5161", SYMLINK+="inverter-usb7"
+
+LABEL="solar_inverter_end"

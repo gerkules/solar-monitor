@@ -1,0 +1,68 @@
+#!/bin/bash
+# Показать USB-HID инверторы и кто их занимает.
+#
+#   inverter-ports
+#
+# Для каждого найденного инвертора (0665:5161) печатает: hidraw-узел, стабильные
+# имена из udev, физический USB-порт и какой коллектор уже его использует.
+# Нужно, когда инверторов два: VID:PID у них одинаковый, различает только порт.
+set -u
+
+echo "USB-порты (хаб/порт -> устройство):"
+for dev in /sys/bus/usb/devices/*; do
+    case "$(basename "$dev")" in usb*|*-*:*) continue ;; esac
+    [ -r "$dev/idVendor" ] || continue
+    vid=$(cat "$dev/idVendor")
+    pid=$(cat "$dev/idProduct")
+    [ "$vid" = "0665" ] && [ "$pid" = "5161" ] || continue
+    echo "  $(basename "$dev")  ${vid}:${pid}  $(cat "$dev/product" 2>/dev/null || echo —)"
+done
+echo
+
+# сравниваем реальные узлы: HID_DEVICE может быть алиасом (/dev/voltronic-inverter)
+used_by() {
+    local node="$1" hit="" path target
+    for f in /opt/solar-monitor/.env /data/inverters/*.env; do
+        [ -f "$f" ] || continue
+        path=$(sed -n "s/^HID_DEVICE=//p" "$f" 2>/dev/null | head -1)
+        [ -n "$path" ] || continue
+        target=$(readlink -f "$path" 2>/dev/null || printf '%s' "$path")
+        [ "$target" = "$node" ] || continue
+        case "$f" in
+            /data/inverters/*) hit="$hit $(basename "$f" .env)" ;;
+            *) hit="$hit main" ;;
+        esac
+    done
+    echo "${hit:- —}"
+}
+
+echo "Инверторы:"
+found=0
+for node in /dev/hidraw*; do
+    [ -e "$node" ] || continue
+    base=$(basename "$node")
+    devpath=$(udevadm info -q property -n "$node" 2>/dev/null | sed -n 's/^DEVPATH=//p')
+    case "$devpath" in
+        *0003:0665:5161*) ;;
+        *) continue ;;
+    esac
+    found=1
+    port=$(printf '%s' "$devpath" | grep -oE '[0-9]+-[0-9]+(\.[0-9]+)?' | tail -1)
+    aliases=$(
+        for a in /dev/voltronic-inverter /dev/inverter-usb*; do
+            [ -L "$a" ] || continue
+            [ "$(basename "$(readlink -f "$a")")" = "$base" ] && printf '%s ' "$(basename "$a")"
+        done
+    )
+    printf '  %-14s порт %-8s алиасы: %-38s занят: %s\n' \
+        "$node" "${port:-?}" "${aliases:-—}" "$(used_by "$node")"
+done
+[ "$found" = 1 ] || echo "  (не найдено — инвертор не подключён или это не USB-HID)"
+
+cat <<'TXT'
+
+Если инверторов два:
+  1) воткните второй в СВОБОДНЫЙ порт хаба (не в тот, где первый и не рядом с Wi-Fi/сетью);
+  2) здесь появится второй hidraw с алиасом /dev/inverter-usbN;
+  3) в UI: Настройки → Инверторы → способ "USB-HID (нативный USB инвертора)" → этот алиас.
+TXT
