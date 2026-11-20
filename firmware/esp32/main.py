@@ -104,9 +104,18 @@ def make_uart(cfg):
 
 
 async def poll_task(poller, wdt, period_s):
+    """Опрос инвертора с паузой-передышкой для остальных задач.
+
+    Шина UART опрашивается блокирующе, поэтому молчащий инвертор (нет кабеля,
+    не тот порт) отнимает у веб-интерфейса по несколько секунд на каждый QPIGS.
+    Пока ответа нет — растягиваем период до 30 с (веб и MQTT остаются живыми),
+    как только данные пошли — возвращаемся к обычному периоду.
+    """
+    quiet = 0
     while True:
+        ok = False
         try:
-            poller.poll_once()
+            ok = poller.poll_once()
         except Exception as ex:                   # noqa: BLE001
             print("poll:", ex)
         try:
@@ -114,7 +123,13 @@ async def poll_task(poller, wdt, period_s):
                 wdt.feed()
         except Exception:
             pass
-        await asyncio.sleep(period_s)
+        if ok:
+            quiet = 0
+            wait = period_s
+        else:
+            quiet = min(quiet + 1, 4)
+            wait = min(period_s * (2 ** quiet), 30)
+        await asyncio.sleep(wait)
 
 
 async def mqtt_task(publisher):
