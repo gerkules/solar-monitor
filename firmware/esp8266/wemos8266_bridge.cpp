@@ -6,7 +6,7 @@
 #include <SoftwareSerial.h>
 #include "ui_html.h"
 
-#define FW_VERSION "125_esp8266_rs232_ui"
+#define FW_VERSION "126_esp8266_rs232_ui"
 #define CONFIG_MAGIC 8266060UL
 #define CONFIG_MAGIC_OLD 8266054UL
 #define DEFAULT_BRIDGE_PORT 9999
