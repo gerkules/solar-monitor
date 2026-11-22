@@ -4,8 +4,9 @@
 #include <ESP8266HTTPUpdateServer.h>
 #include <EEPROM.h>
 #include <SoftwareSerial.h>
+#include "ui_html.h"
 
-#define FW_VERSION "123_esp8266_rs232_bridge"
+#define FW_VERSION "124_esp8266_rs232_ui"
 #define CONFIG_MAGIC 8266060UL
 #define CONFIG_MAGIC_OLD 8266054UL
 #define DEFAULT_BRIDGE_PORT 9999
@@ -17,6 +18,8 @@
 #define STARTUP_FAST_MS 45000UL
 #define OFFLINE_MS 15000UL
 #define WRITE_TIMEOUT_MS 5000UL
+#define HIST_POINTS 360
+#define HIST_EVERY_MS 10000UL
 
 // Wemos D1 mini ESP8266: D5=GPIO14 reads inverter TX, D6=GPIO12 writes inverter RX.
 #define INV_RX_PIN D5
@@ -64,6 +67,9 @@ uint32_t brTcpToUart = 0;
 uint32_t brUartToTcp = 0;
 uint32_t brSessions = 0;
 unsigned long brLastMs = 0;
+int16_t histBuf[HIST_POINTS][4];
+uint16_t histHead = 0, histCount = 0;
+unsigned long lastHistMs = 0;
 
 bool bridgeActive();
 SoftwareSerial invSerial(INV_RX_PIN, INV_TX_PIN);
@@ -377,6 +383,11 @@ void handleData() {
   j += "\"setting\":\"" + jsonEscape(settingStatus) + "\",";
   j += "\"busy\":\"" + String(writeBusy() ? "Да" : "Нет") + "\",";
   j += "\"cmd\":\"" + jsonEscape(lastCommand) + "\",";
+  j += "\"ssid\":\"" + jsonEscape(String(conf.ssid)) + "\",";
+  j += "\"ip\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("192.168.4.1")) + "\",";
+  j += "\"rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
+  j += "\"up\":" + String(millis() / 60000UL) + ",";
+  j += "\"heap\":" + String(ESP.getFreeHeap()) + ",";
   j += "\"br_client\":\"" + jsonEscape(brClientIp) + "\",";
   j += "\"br_active\":" + String(bridgeActive() ? "true" : "false") + ",";
   j += "\"br_tcp2uart\":" + String(brTcpToUart) + ",";
@@ -389,66 +400,35 @@ void handleData() {
   server.send(200, "application/json", j);
 }
 
+void saveHistoryPoint() {
+  if (!inv.updated || millis() - lastSeen > OFFLINE_MS) return;
+  int16_t* row = histBuf[histHead];
+  row[0] = (int16_t)constrain(inv.outWatts, 0, 32000);
+  row[1] = (int16_t)constrain(inv.pvWatts, 0, 32000);
+  row[2] = (int16_t)constrain(battWatts(), -32000, 32000);
+  row[3] = (int16_t)constrain(gridWatts(), 0, 32000);
+  histHead = (histHead + 1) % HIST_POINTS;
+  if (histCount < HIST_POINTS) histCount++;
+  lastHistMs = millis();
+}
+
+void handleHistory() {
+  if (!isAdmin()) return;
+  String j = "{\"pts\":[";
+  j.reserve(histCount * 22 + 16);
+  for (uint16_t i = 0; i < histCount; i++) {
+    uint16_t idx = (histHead + HIST_POINTS - histCount + i) % HIST_POINTS;
+    if (i) j += ',';
+    j += '[' + String(histBuf[idx][0]) + ',' + String(histBuf[idx][1]) + ',' +
+         String(histBuf[idx][2]) + ',' + String(histBuf[idx][3]) + ']';
+  }
+  j += "]}";
+  server.send(200, "application/json", j);
+}
+
 void handleRoot() {
   if (!isAdmin()) return;
-  String h;
-  h.reserve(10500);
-  h += "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-  h += "<title>ESP8266 Solar Lite</title><style>";
-  h += ":root{--bg:#eef2f7;--card:#fff;--ink:#1f2a37;--muted:#64748b;--line:#e2e8f0;--accent:#2563eb;--warn:#f59e0b;--good:#16a34a;--bad:#dc2626;--radius:14px}";
-  h += "@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#141d2e;--ink:#e7ecf5;--muted:#8b96a8;--line:#233046}}";
-  h += "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif}";
-  h += ".top{background:linear-gradient(135deg,#0f2f4c,#1d6fa5);color:#fff;padding:20px 5vw 0;box-shadow:0 2px 12px rgba(0,0,0,.18)}";
-  h += ".brand{font-size:22px;font-weight:800;letter-spacing:.2px}.brand .fw{display:block;font-size:12px;font-weight:400;opacity:.75;margin-top:2px}";
-  h += ".tabs{display:flex;gap:6px;margin-top:16px}.tab{border:0;background:rgba(255,255,255,.14);color:#fff;padding:12px 20px;border-radius:10px 10px 0 0;font-weight:700;cursor:pointer}";
-  h += ".tab.active{background:var(--bg);color:var(--ink)}.page{display:none;padding:22px 5vw 40px;max-width:1100px;margin:0 auto}.page.active{display:block}";
-  h += ".grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}";
-  h += ".card{background:var(--card);border-radius:var(--radius);padding:18px;box-shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.05);margin-bottom:12px}";
-  h += ".card b{display:block;font-size:26px;margin:6px 0;font-weight:800}";
-  h += ".muted{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px;font-weight:700}";
-  h += ".ok{color:var(--good)}.bad{color:var(--bad)}";
-  h += ".raw{font:12px/1.5 ui-monospace,Menlo,monospace;background:#0f172a;color:#c7d2fe;padding:14px;overflow:auto;border-radius:10px}";
-  h += ".btn{background:var(--accent);color:#fff;border:0;padding:11px 16px;border-radius:9px;font-weight:700;margin:4px 6px 4px 0;cursor:pointer}";
-  h += ".btn.alt{background:var(--warn)}";
-  h += ".wifi input,.settings select{width:100%;padding:11px;margin:6px 0 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:var(--card);color:var(--ink)}";
-  h += ".bar{position:relative;height:18px;background:var(--line);border-radius:9px;overflow:hidden;margin-top:9px}";
-  h += ".fill{position:absolute;top:0;bottom:0;left:0;width:0;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .4s}";
-  h += ".fill.rev{left:auto;right:0;background:linear-gradient(90deg,#f87171,#dc2626)}";
-  h += ".barlabel{position:absolute;inset:0;text-align:center;font-size:11px;line-height:18px;font-weight:700;color:var(--ink)}";
-  h += ".settings{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.status{font-size:13px;color:var(--muted);margin-top:10px}";
-  h += "@media(max-width:900px){.settings{grid-template-columns:1fr 1fr}}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.tab{flex:1;text-align:center}}";
-  h += "</style><script>";
-  h += "function by(i){return document.getElementById(i)}function set(i,v){let e=by(i);if(e)e.textContent=v}function pct(v){return Math.max(0,Math.min(100,Number(v)||0))}function tab(n){document.querySelectorAll('.tab,.page').forEach(e=>e.classList.remove('active'));by('tab_'+n).classList.add('active');by('page_'+n).classList.add('active')}function upd(){fetch('/data').then(r=>r.json()).then(d=>{set('online',d.online);by('online').className=d.online==='Да'?'ok':'bad';set('mode',d.mode);set('load',d.load_w+' W');set('lp',d.load_pct+' %');set('pv',d.pv_w+' W');set('pv2',d.pv_v+' V / '+d.pv_a+' A');set('bat',d.bat_w+' W');set('bat2',d.bat_v+' V / '+d.bat_a+' A / '+d.bat_pct+' %');set('grid',d.grid_w+' W');set('grid2',d.grid_v+' V / '+d.grid_hz+' Hz');set('age',d.last_age+' s');set('ok',d.ok);set('fail',d.fail);set('cmd',d.cmd);set('raw',d.raw);set('setting',d.setting);set('busy',d.busy);let lp=pct(d.load_pct),lf=by('lf');if(lf)lf.style.width=lp+'%';set('ll',lp+'%');let bp=pct(d.bat_pct),bf=by('bf'),bw=Number(d.bat_w)||0;if(bf){bf.style.width=bp+'%';bf.className=bw<0?'fill rev':'fill'}set('bl',bp+'%');set('brcli',d.br_client);set('brst',d.br_active?'клиент подключён':'ждёт клиента');by('brst').className=d.br_active?'ok':'bad';set('brrx',d.br_tcp2uart);set('brtx',d.br_uart2tcp);set('brage',d.br_age+' s');set('brsess',d.br_sessions);set('brport',d.br_port);set('baudv',d.baud)})}function postSet(k,id){let s=by('setting');if(s)s.textContent='Sending...';fetch('/set',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'key='+encodeURIComponent(k)+'&value='+encodeURIComponent(by(id).value)}).then(r=>r.text().then(t=>{set('setting',t);setTimeout(upd,900)})).catch(()=>set('setting','Error'))}setInterval(upd,2000);window.onload=upd;";
-  h += "</script></head><body><div class='top'><div class='brand'>&#9728;&#65039; ESP8266 Solar Lite<span class='fw'>" FW_VERSION "</span></div><div class='tabs'><button id='tab_dash' class='tab active' onclick=\"tab('dash')\">Dashboard</button><button id='tab_settings' class='tab' onclick=\"tab('settings')\">Settings</button></div></div>";
-  h += "<div id='page_dash' class='page active'>";
-  h += "<div class='card'><b id='online'>-</b><span id='mode' class='muted'>-</span></div><br><div class='grid'>";
-  h += "<div class='card'><span class='muted'>&#9889; Load</span><b id='load'>-</b><span id='lp'>-</span><div class='bar'><div id='lf' class='fill'></div><span id='ll' class='barlabel'>-</span></div></div>";
-  h += "<div class='card'><span class='muted'>&#9728;&#65039; Solar PV</span><b id='pv'>-</b><span id='pv2'>-</span></div>";
-  h += "<div class='card'><span class='muted'>&#128267; Battery</span><b id='bat'>-</b><span id='bat2'>-</span><div class='bar'><div id='bf' class='fill'></div><span id='bl' class='barlabel'>-</span></div></div>";
-  h += "<div class='card'><span class='muted'>&#128268; Grid</span><b id='grid'>-</b><span id='grid2'>-</span></div></div>";
-  h += "<br><div class='grid'><div class='card'><span class='muted'>Last data</span><b id='age'>-</b></div><div class='card'><span class='muted'>Packets OK</span><b id='ok'>-</b></div><div class='card'><span class='muted'>Parse fail</span><b id='fail'>-</b></div><div class='card'><span class='muted'>Last cmd</span><b id='cmd'>-</b></div></div>";
-  h += "<br><div class='card'><span class='muted'>&#128268; RS232 bridge (Orange Pi &rarr; TCP :<span id='brport'>-</span>)</span>";
-  h += "<b id='brst' class='bad'>-</b><span class='muted'>client: <span id='brcli'>-</span></span>";
-  h += "<div class='grid' style='margin-top:10px'><div><span class='muted'>TCP &rarr; UART, bytes</span><b id='brrx'>-</b></div>";
-  h += "<div><span class='muted'>UART &rarr; TCP, bytes</span><b id='brtx'>-</b></div>";
-  h += "<div><span class='muted'>Last byte</span><b id='brage'>-</b></div>";
-  h += "<div><span class='muted'>Sessions / baud</span><b id='brsess'>-</b> / <span id='baudv'>-</span></div></div></div>";
-  h += "</div><div id='page_settings' class='page'>";
-  h += "<br><div class='card'><h3>Settings</h3><div class='settings'>";
-  h += "<div><span class='muted'>Output priority</span><select id='set_out'><option value='usb'>USB: Utility first</option><option value='sub'>SUB: Solar first</option><option value='sbu'>SBU: Battery first</option></select><button class='btn' onclick=\"postSet('output','set_out')\">Save</button></div>";
-  h += "<div><span class='muted'>Charger priority</span><select id='set_chg'><option value='solar_first'>Solar first</option><option value='both'>Solar + Utility</option><option value='utility'>Utility only</option><option value='solar_only'>Solar only</option></select><button class='btn' onclick=\"postSet('charger','set_chg')\">Save</button></div>";
-  h += "<div><span class='muted'>Battery type</span><select id='set_btype'><option value='agm'>AGM</option><option value='flooded'>Flooded</option><option value='user'>User</option></select><button class='btn' onclick=\"postSet('battery_type','set_btype')\">Save</button></div>";
-  h += "<div><span class='muted'>Max charge</span><select id='set_max'><option>10</option><option>20</option><option>30</option><option>40</option><option>50</option><option>60</option></select><button class='btn alt' onclick=\"postSet('max_charge','set_max')\">Save</button></div>";
-  h += "<div><span class='muted'>Max grid charge</span><select id='set_grid'><option>2</option><option>10</option><option>20</option><option>30</option><option>40</option><option>50</option><option>60</option></select><button class='btn alt' onclick=\"postSet('max_grid_charge','set_grid')\">Save</button></div>";
-  h += "</div><div class='status'>Status: <span id='setting'>-</span> | Busy: <span id='busy'>-</span></div></div>";
-  h += "<br><div class='card'><h3>RS232 bridge (TCP &rarr; инвертор)</h3><form method='POST' action='/bridge'>TCP port:<input name='port' value='" + String(conf.bridgePort) + "'>";
-  h += "UART baud:<select name='baud'><option" + String(conf.baud == 1200 ? " selected" : "") + ">1200</option><option" + String(conf.baud == 2400 ? " selected" : "") + ">2400</option>";
-  h += "<option" + String(conf.baud == 4800 ? " selected" : "") + ">4800</option><option" + String(conf.baud == 9600 ? " selected" : "") + ">9600</option><option" + String(conf.baud == 19200 ? " selected" : "") + ">19200</option></select>";
-  h += "<button class='btn'>Save bridge</button></form><div class='status'>Пока TCP-клиент подключён, локальный опрос пауза: на линии один мастер.</div></div>";
-  h += "<br><div class='card'><div class='muted'>Raw</div><pre id='raw' class='raw'>-</pre></div>";
-  h += "<br><div class='card wifi'><form method='POST' action='/wifi'>SSID:<input name='s' maxlength='31' value='" + htmlEscape(conf.ssid) + "'>Wi-Fi password:<input name='p' maxlength='31' type='password' value='" + htmlEscape(conf.pass) + "'>Admin password:<input name='a' maxlength='15' type='password' value='" + htmlEscape(conf.adminPass) + "'><button class='btn'>Save Wi-Fi</button></form></div>";
-  h += "<br><div class='card'><a href='/update'>BIN upload / OTA update</a></div></div></body></html>";
-  server.send(200, "text/html; charset=utf-8", h);
+  server.send_P(200, "text/html; charset=utf-8", UI_HTML);
 }
 
 void handleWiFiSave() {
@@ -662,6 +642,7 @@ void setup() {
 
   server.on("/", handleRoot);
   server.on("/data", handleData);
+  server.on("/history", handleHistory);
   server.on("/set", HTTP_POST, handleSet);
   server.on("/wifi", HTTP_POST, handleWiFiSave);
   server.on("/bridge", HTTP_POST, handleBridgeSave);
@@ -712,6 +693,7 @@ void loop() {
   if (invSerial.available()) {
     String r = invSerial.readStringUntil('\r');
     handleFrame(r);
+    if (millis() - lastHistMs >= HIST_EVERY_MS) saveHistoryPoint();
     digitalWrite(LED_PIN, LOW);
     delay(20);
     digitalWrite(LED_PIN, HIGH);
