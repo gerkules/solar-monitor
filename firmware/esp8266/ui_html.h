@@ -27,7 +27,7 @@ static const char UI_HTML[] PROGMEM = R"HTML(<!doctype html><html lang="ru"><hea
 .row:last-child{border-bottom:0}.row b{color:var(--ink);font-weight:600;text-align:right}
 select,input{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:var(--card);color:var(--ink);margin:5px 0 10px}
 .btn{background:var(--blue);color:#fff;border:0;padding:11px 16px;border-radius:9px;font-weight:700;margin:4px 6px 4px 0;cursor:pointer}
-.btn.alt{background:#d97706}canvas{width:100%;height:150px;display:block}
+.btn.alt{background:#d97706}input[type=checkbox]{width:auto;height:18px;margin:0 8px 0 0;vertical-align:-3px}label{display:block;margin:4px 0 10px;font-size:13px;color:var(--muted)}canvas{width:100%;height:150px;display:block}
 .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin-top:6px}
 .dot{display:inline-block;width:14px;height:3px;margin-right:5px;vertical-align:middle}
 @media(max-width:820px){.grid{grid-template-columns:1fr 1fr}}
@@ -104,13 +104,14 @@ select,input{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 
 <div class="page" id="p-br">
 <div class="card"><span class="muted">Мост TCP ⇄ RS232 (для Orange Pi / solar-monitor)</span>
+<div class="row"><span>Трансляция на другое устройство</span><b id="b-en">—</b></div>
 <div class="row"><span>Состояние</span><b id="b-state">—</b></div>
 <div class="row"><span>Клиент</span><b id="b-cli">—</b></div>
 <div class="row"><span>TCP → UART, байт</span><b id="b-rx">—</b></div>
 <div class="row"><span>UART → TCP, байт</span><b id="b-tx">—</b></div>
 <div class="row"><span>Последний байт</span><b id="b-age">—</b></div>
 <div class="row"><span>Сессий</span><b id="b-sess">—</b></div>
-<form method="POST" action="/bridge"><span class="muted">TCP-порт</span><input name="port" id="b-port" value="9999">
+<form method="POST" action="/bridge"><label><input type="checkbox" name="en" id="b-en-chk" value="1"> разрешить трансляцию (Wemos = TCP-сервер для Orange Pi/VDS)</label><span class="muted">TCP-порт</span><input name="port" id="b-port" value="9999">
 <span class="muted">Скорость линии инвертора</span><select name="baud" id="b-baud"><option>1200</option><option>2400</option><option>4800</option><option>9600</option><option>19200</option></select>
 <button class="btn">Сохранить мост</button></form>
 <div class="row"><span>Локальный опрос</span><b id="b-local">—</b></div></div>
@@ -157,10 +158,11 @@ function upd(){
   $('m-bat').textContent=bw+' W';$('m-batv').textContent=fmt(d.bat_v,1)+' В';$('m-grid').textContent=gw+' W';$('m-gridv').textContent=fmt(d.grid_v,0)+' В';
   $('temp').textContent=(d.temp||'—')+' °C';
   setw('w-pv',pv,false,true);setw('w-grid',gw,false);setw('w-load',lw,false);setw('w-bat',Math.abs(bw),bw<0);
-  $('b-state').textContent=d.br_active?'клиент подключён':'ждёт клиента';$('b-state').className=d.br_active?'ok':'warn';
+  $('b-en').textContent=d.br_enabled?'включена':'выключена';$('b-en').className=d.br_enabled?'ok':'warn';$('b-en-chk').checked=d.br_enabled;
+ $('b-state').textContent=d.br_enabled?(d.br_active?'клиент подключён':'ждёт клиента'):'трансляция выключена';$('b-state').className=d.br_enabled?(d.br_active?'ok':'warn'):'warn';
   $('b-cli').textContent=d.br_client;$('b-rx').textContent=d.br_tcp2uart;$('b-tx').textContent=d.br_uart2tcp;
   $('b-age').textContent=d.br_age+' с назад';$('b-sess').textContent=d.br_sessions;
-  $('b-local').textContent=d.br_active?'пауза (линию ведёт сервер)':'активен';$('b-port').value=d.br_port;$('b-baud').value=d.baud;
+  $('b-local').textContent=d.br_active?'пауза (линию ведёт сервер)':(d.br_enabled?'активен':'активен (трансляция выкл.)');$('b-port').value=d.br_port;$('b-baud').value=d.baud;
   $('w-ssid').textContent=d.ssid||'(AP режим)';$('w-ip').textContent=d.ip+' / '+d.rssi+' dBm';
   $('d-fw').textContent=d.fw;$('d-up').textContent=d.up+' мин';$('d-heap').textContent=d.heap+' Б';$('d-rssi').textContent=d.rssi+' dBm';
   $('d-pk').textContent=d.ok+' / '+d.fail;$('d-cmd').textContent=d.cmd;$('d-age').textContent=d.last_age+' с';

@@ -6,7 +6,7 @@
 #include <SoftwareSerial.h>
 #include "ui_html.h"
 
-#define FW_VERSION "124_esp8266_rs232_ui"
+#define FW_VERSION "125_esp8266_rs232_ui"
 #define CONFIG_MAGIC 8266060UL
 #define CONFIG_MAGIC_OLD 8266054UL
 #define DEFAULT_BRIDGE_PORT 9999
@@ -36,6 +36,7 @@ struct LiteConfig {
   char adminPass[16] = "admin";
   uint16_t bridgePort = DEFAULT_BRIDGE_PORT;
   uint16_t baud = DEFAULT_BAUD;
+  uint8_t bridgeEnabled = 0;   // 0 = только локальный мониторинг
 } conf;
 
 struct InverterData {
@@ -172,15 +173,18 @@ void loadConfig() {
   }
   if (conf.bridgePort < 1024) conf.bridgePort = DEFAULT_BRIDGE_PORT;
   if (conf.baud < 1200 || conf.baud > 19200) conf.baud = DEFAULT_BAUD;
+  if (conf.bridgeEnabled > 1) conf.bridgeEnabled = 0;
 }
 
 void saveConfig(const String& ssid, const String& pass, const String& admin) {
   uint16_t keepPort = conf.bridgePort;
   uint16_t keepBaud = conf.baud;
+  uint8_t keepEnabled = conf.bridgeEnabled;
   memset(&conf, 0, sizeof(conf));
   conf.magic = CONFIG_MAGIC;
   conf.bridgePort = keepPort;
   conf.baud = keepBaud;
+  conf.bridgeEnabled = keepEnabled;
   ssid.substring(0, sizeof(conf.ssid) - 1).toCharArray(conf.ssid, sizeof(conf.ssid));
   pass.substring(0, sizeof(conf.pass) - 1).toCharArray(conf.pass, sizeof(conf.pass));
   admin.substring(0, sizeof(conf.adminPass) - 1).toCharArray(conf.adminPass, sizeof(conf.adminPass));
@@ -394,6 +398,7 @@ void handleData() {
   j += "\"br_uart2tcp\":" + String(brUartToTcp) + ",";
   j += "\"br_sessions\":" + String(brSessions) + ",";
   j += "\"br_age\":" + String(brLastMs ? (millis() - brLastMs) / 1000 : 0) + ",";
+  j += "\"br_enabled\":" + String(conf.bridgeEnabled ? "true" : "false") + ",";
   j += "\"br_port\":" + String(conf.bridgePort) + ",";
   j += "\"baud\":" + String(conf.baud) + ",";
   j += "\"raw\":\"" + jsonEscape(lastRaw) + "\"}";
@@ -440,7 +445,7 @@ void handleWiFiSave() {
 }
 
 bool bridgeActive() {
-  return bridgeClient && bridgeClient.connected();
+  return conf.bridgeEnabled && bridgeClient && bridgeClient.connected();
 }
 
 void bridgePump() {
@@ -465,6 +470,15 @@ void bridgePump() {
 
 // Один активный TCP-клиент: на линии 2400 бод два мастера несовместимы.
 void bridgeService() {
+  if (!conf.bridgeEnabled) {
+    if (bridgeClient) {
+      bridgeClient.stop();
+      bridgeClient = WiFiClient();
+      brClientIp = "-";
+      pollPausedUntil = millis() + 500;
+    }
+    return;
+  }
   if (!bridgeActive()) {
     if (bridgeClient) {
       bridgeClient.stop();
@@ -501,12 +515,16 @@ void handleBridgeSave() {
   }
   conf.bridgePort = (uint16_t)port;
   conf.baud = (uint16_t)baud;
+  conf.bridgeEnabled = server.hasArg("en") ? 1 : 0;
   EEPROM.put(0, conf);
   EEPROM.commit();
-  bridgeServer.begin(conf.bridgePort);
+  if (conf.bridgeEnabled) bridgeServer.begin(conf.bridgePort);
+  else bridgeServer.stop();
   invSerial.begin(conf.baud);
+  pollPausedUntil = millis() + 500;
   server.send(200, "text/plain; charset=utf-8",
-              "Saved: port " + String(conf.bridgePort) + ", " + String(conf.baud) + " baud");
+              String("Saved: ") + (conf.bridgeEnabled ? "трансляция ВКЛ" : "трансляция ВЫКЛ") +
+              ", port " + String(conf.bridgePort) + ", " + String(conf.baud) + " baud");
 }
 
 
@@ -519,6 +537,7 @@ void cliHelp() {
   Serial.println(F("admin <пароль>             пароль веб/OTA"));
   Serial.println(F("port <1024..65535>         TCP-порт моста (по умолчанию 9999)"));
   Serial.println(F("baud <1200|2400|4800|9600|19200>  скорость линии инвертора"));
+  Serial.println(F("bridge on|off              трансляция TCP<->RS232 для Orange Pi/VDS"));
   Serial.println(F("reboot | factory           перезагрузка / сброс настроек"));
 }
 
@@ -535,8 +554,8 @@ void cliHandle(String l) {
   cmd.toLowerCase();
   if (cmd == "help" || cmd == "?") { cliHelp(); return; }
   if (cmd == "show") {
-    Serial.printf("ssid=%s pass=%s admin=%s port=%u baud=%u ip=%s ap=%d\n",
-                  conf.ssid, conf.pass, conf.adminPass, conf.bridgePort, conf.baud,
+    Serial.printf("ssid=%s pass=%s admin=%s bridge=%s port=%u baud=%u ip=%s ap=%d\n",
+                  conf.ssid, conf.pass, conf.adminPass, conf.bridgeEnabled ? "on" : "off", conf.bridgePort, conf.baud,
                   WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "-",
                   apMode ? 1 : 0);
     return;
@@ -579,6 +598,18 @@ void cliHandle(String l) {
     cliSave();
     invSerial.begin(conf.baud);
     Serial.printf("OK baud=%u\n", conf.baud);
+    return;
+  }
+  if (cmd == "bridge") {
+    if (arg == "on") conf.bridgeEnabled = 1;
+    else if (arg == "off") conf.bridgeEnabled = 0;
+    else { Serial.println(F("ERR: bridge on|off")); return; }
+    cliSave();
+    if (conf.bridgeEnabled) bridgeServer.begin(conf.bridgePort);
+    else bridgeServer.stop();
+    pollPausedUntil = millis() + 500;
+    Serial.printf("OK bridge=%s (локальный опрос %s)\n", conf.bridgeEnabled ? "on" : "off",
+                  conf.bridgeEnabled ? "пауза при подключённом клиенте" : "активен");
     return;
   }
   if (cmd == "reboot") { Serial.println(F("rebooting...")); delay(200); ESP.restart(); return; }
@@ -650,8 +681,9 @@ void setup() {
   server.begin();
   Serial.setTimeout(50);
   cliHelp();
-  bridgeServer.begin(conf.bridgePort);
   bridgeServer.setNoDelay(true);
+  if (conf.bridgeEnabled) bridgeServer.begin(conf.bridgePort);
+  else bridgeServer.stop();
 
   sendCommand("QPIGS");
   lastPoll = millis();
