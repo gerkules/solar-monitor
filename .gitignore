@@ -28,3 +28,8 @@ AGENTS.md
 !firmware/esp32/builds/*.bin
 !firmware/esp32/builds/*.sha256
 firmware/esp32/config.json
+
+# ESP8266 build dir
+firmware/esp8266/.pio/
+# дамп старой прошивки платы (4 МБ, не для git)
+firmware/esp8266/backup/
