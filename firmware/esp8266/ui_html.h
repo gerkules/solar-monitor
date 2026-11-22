@@ -42,19 +42,19 @@ select,input{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 <div class="card flowbox"><svg class="flow" viewBox="0 0 520 350" xmlns="http://www.w3.org/2000/svg">
 <defs>
 <linearGradient id="sunG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffd54a"/><stop offset="1" stop-color="#f1852b"/></linearGradient>
-<clipPath id="batClip"><rect x="228" y="258" width="34" height="30" rx="2"/></clipPath>
+<clipPath id="batClip"><rect x="238" y="262" width="44" height="42" rx="2"/></clipPath>
 </defs>
-<path id="w-pv" class="wire" d="M260 96 L260 132"/>
+<path id="w-pv" class="wire" d="M260 116 L260 132"/>
 <path id="w-grid" class="wire" d="M128 168 L206 168"/>
 <path id="w-load" class="wire" d="M314 168 L392 168"/>
 <path id="w-bat" class="wire" d="M260 204 L260 258"/>
 <text class="s" x="260" y="12">Солнце / PV</text>
 <g><circle cx="238" cy="30" r="9" fill="url(#sunG)"/>
 <g stroke="#f6b93b" stroke-width="2" stroke-linecap="round"><path d="M238 14v5M238 41v5M222 30h5M249 30h5M227 19l3.5 3.5M245.5 37.5l3.5 3.5M249 19l-3.5 3.5M230.5 37.5L227 41"/></g>
-<g transform="translate(172 34) skewX(-12)"><rect width="118" height="52" rx="3" fill="#1e3a5f" stroke="#4f8fd6" stroke-width="2"/>
+<g transform="translate(206 34) skewX(-12)"><rect width="118" height="52" rx="3" fill="#1e3a5f" stroke="#4f8fd6" stroke-width="2"/>
 <path d="M39 0v52M78 0v52M0 26h118" stroke="#4f8fd6" stroke-width="1.5" opacity=".85"/></g>
-<text class="c" x="231" y="104" id="pvV">— В / — А</text>
-<text class="t" x="260" y="92" id="pvW">—</text></g>
+<text class="t" x="260" y="94" id="pvW">—</text>
+<text class="c" x="260" y="108" id="pvV">— В / — А</text></g>
 <text class="s" x="66" y="140">Сеть</text>
 <g><path d="M66 152l10 40M66 152l-10 40" stroke="#4f8fd6" stroke-width="3" fill="none" stroke-linecap="round"/>
 <path d="M59 160h14M57 168h18M55 176h22M53 184h26M48 192h36" stroke="#4f8fd6" stroke-width="2.6" stroke-linecap="round"/>
@@ -73,10 +73,10 @@ select,input{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 <rect x="444" y="168" width="18" height="34" rx="1" fill="#6b4a2f"/>
 <text class="t" x="454" y="218" id="loadW">—</text><text class="c" x="454" y="234" id="loadP">—</text></g>
 <text class="s" x="260" y="256">АКБ</text>
-<g><rect x="243" y="286" width="18" height="6" rx="2" fill="#8b9bb0"/>
-<rect x="230" y="262" width="44" height="42" rx="4" fill="none" stroke="#16a34a" stroke-width="2.6"/>
-<rect id="batFill" x="234" y="266" width="36" height="34" rx="2" fill="#16a34a" opacity=".8" clip-path="url(#batClip)"/>
-<text id="batPct" x="252" y="287" font-size="13" font-weight="800" text-anchor="middle" fill="#fff">—</text>
+<g><rect x="251" y="286" width="18" height="6" rx="2" fill="#8b9bb0"/>
+<rect x="238" y="262" width="44" height="42" rx="4" fill="none" stroke="#16a34a" stroke-width="2.6"/>
+<rect id="batFill" x="242" y="266" width="36" height="34" rx="2" fill="#16a34a" opacity=".8" clip-path="url(#batClip)"/>
+<text id="batPct" x="260" y="287" font-size="13" font-weight="800" text-anchor="middle" fill="#fff">—</text>
 <text class="t" x="260" y="324" id="batW">—</text><text class="c" x="260" y="340" id="batV">—</text></g>
 </svg></div>
 <div class="grid"><div class="card metric"><span class="muted">Нагрузка</span><b id="m-load">—</b><span class="muted" id="m-lp">—</span></div>
@@ -155,7 +155,7 @@ function upd(){
   $('invW').textContent=lw+' W';$('invCap').textContent=(d.mode||'')+' · '+d.load_pct+' %';
   $('loadW').textContent=lw+' W';$('loadP').textContent=d.load_pct+' %';
   $('batW').textContent=bw+' W';$('batV').textContent=fmt(d.bat_v,1)+' В / '+d.bat_pct+' %';
-  $('batPct').textContent=d.bat_pct+' %';const f=$('batFill');if(f){f.setAttribute('height',Math.max(0,Math.min(34,34*d.bat_pct/100)));f.setAttribute('y',300-4-Math.max(0,Math.min(34,34*d.bat_pct/100)));f.setAttribute('fill',bw<0?'#dc2626':'#16a34a')}
+  $('batPct').textContent=d.bat_pct+' %';const f=$('batFill');if(f){f.setAttribute('height',Math.max(0,Math.min(34,34*d.bat_pct/100)));f.setAttribute('y',300-Math.max(0,Math.min(34,34*d.bat_pct/100)));f.setAttribute('fill',bw<0?'#dc2626':'#16a34a')}
   $('m-load').textContent=lw+' W';$('m-lp').textContent=d.load_pct+' %';$('m-pv').textContent=pv+' W';$('m-pvv').textContent=fmt(d.pv_v,1)+' В';
   $('m-bat').textContent=bw+' W';$('m-batv').textContent=fmt(d.bat_v,1)+' В';$('m-grid').textContent=gw+' W';$('m-gridv').textContent=fmt(d.grid_v,0)+' В';
   $('temp').textContent=(d.temp||'—')+' °C';
