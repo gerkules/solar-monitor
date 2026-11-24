@@ -28,6 +28,8 @@
 | `20-phone-bootstrap.sh` | Termux на телефоне | `pkg upgrade`, proot-distro, Debian, venv, `pip install -r requirements.txt` |
 | `30-start-collector.sh` | **внутри Debian** → `/root/start-collector.sh` | все env-переменные коллектора и запуск |
 | `40-termux-boot.sh` | Termux → `~/.termux/boot/start-collector.sh` | автозапуск после ребута, while-true рестарт |
+| `41-termux-boot-with-broker.sh` | Termux → `~/.termux/boot/start-collector.sh` | то же + поднимает **локальный mosquitto** (автономный комплект) |
+| `config.example` | копия → `/root/solar-monitor.env` в Debian | шаблон всех переменных (SITE, брокер, транспорт, auth) |
 | `50-health.sh` | Termux на телефоне | разовая проверка: RAM, Wi-Fi, процессы, `/healthz`, сайты, хвост лога |
 
 ## 2. Чего на таком телефоне НЕ будет
@@ -233,3 +235,61 @@ sleep 1; adb shell input keyevent 66              # Enter (иногда нуже
 5. Кнопка «Разблокировка OEM» есть? Если да — в перспективе возможен postmarketOS,
    если для коднейма есть порт (проверять `pmaports/device/{community,testing}`).
 6. Не забыть: `AUTH_PASSWORD` для UI, иначе любой в сети меняет уставки инвертора.
+
+## 8. Комплект для друга: мост на Wemos вместо донгла
+
+Сценарий: у второго человека такой же инвертор, своего сервера/брокера нет, данные
+отдаёт самодельный мост **Wemos D1 (ESP8266) TCP ⇄ RS232** (прошивка в `firmware/esp8266/`).
+Телефон = коллектор + UI + брокер, всё локально, интернет не нужен.
+
+### 8.1 Что настроить на Wemos
+
+1. Прошить образ `firmware/esp8266/builds/126_wemos_d1_esp8266_rs232_ui.bin`.
+2. **Включить мост** — по умолчанию он выключен: веб-панель → вкладка «Мост» → вкл,
+   либо по USB-serial (115200) командой `bridge on`. Порт TCP по умолчанию **9999**.
+3. Линия инвертора **2400 8N1**, подключение через MAX3232 (инвертор — настоящий RS232 ±12 В).
+4. **Снять донгл EW10** с разъёма: на линии 2400 бод два мастера несовместимы.
+   Wemos сам ставит локальный опрос на паузу, пока подключён TCP-клиент.
+
+### 8.2 Что настроить на телефоне
+
+```sh
+pkg install -y mosquitto      # пакета mosquitto-clients в Termux НЕТ (проверено)
+```
+
+В `/root/solar-monitor.env` (см. `config.example`):
+
+```sh
+SITE=friend                       # имя сайта → solar_friend_* в HA
+MQTT_HOST=127.0.0.1               # локальный брокер на самом телефоне
+TRANSPORT=tcp
+TCP_HOST=<ip-wemos>               # обычно 192.168.4.1 в режиме AP
+TCP_PORT=9999
+AUTH_PASSWORD=<пароль>            # обязательно
+```
+
+Автозапуск — `41-termux-boot-with-broker.sh` (поднимает mosquitto, потом коллектор).
+
+Всё то же можно переключить **из веб-интерфейса**: Настройки → Подключение →
+«Виртуальный RS232 (TCP)» → host/port. Выбор пишется в `/data/connection.json`
+(внутри rootfs каталог `/data` есть и доступен на запись — проверено).
+
+### 8.3 Что получит друг и чего не получит
+
+| Есть | Нет |
+|---|---|
+| Живой UI на телефоне (`http://127.0.0.1:8080`) и с любого устройства в его сети (`http://<ip-телефона>:8080`) | Истории/графиков — InfluxDB 2.x не собирается под armv7 |
+| MQTT внутри телефона — можно потом прицепить его HA | TLS/HTTPS из коробки (внутри LAN не нужен) |
+| Автозапуск после ребута, работа без интернета | Резервирования: упал телефон — нет данных |
+| Панель самого Wemos (FW124) со схемой потоков и графиком за час — как замена графикам | — |
+
+### 8.4 Три команды для друга, если «не показывает»
+
+```sh
+# 1. жив ли мост и отвечает ли инвертор (с телефона по ssh/adb или в Termux)
+python -c "import socket;s=socket.create_connection(('<ip-wemos>',9999),5);print('bridge ok');s.close()"
+# 2. жив ли коллектор
+python -c "import urllib.request as u;print(u.urlopen('http://127.0.0.1:8080/healthz',timeout=5).read())"
+# 3. хвост лога
+tail -20 /sdcard/collector.log
+```
