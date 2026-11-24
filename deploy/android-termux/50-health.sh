@@ -9,7 +9,9 @@ echo "--- android"
 getprop ro.product.model; getprop ro.build.version.release
 awk '/MemFree|MemAvailable/{print}' /proc/meminfo
 awk '/^wlan0|inet /{print}' /proc/net/route >/dev/null 2>&1
-ip -f inet addr show wlan0 2>/dev/null | grep 'inet ' || echo "нет ip на wlan0"
+ip -f inet addr show wlan0 2>/dev/null | grep 'inet ' \
+  || getprop dhcp.wlan0.ipaddress \
+  || echo "нет ip на wlan0"
 
 echo "--- процессы"
 ps | grep -E 'proot|venv/bin/python' | grep -v grep || echo "коллектор НЕ запущен"
